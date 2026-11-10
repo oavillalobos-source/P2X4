@@ -4,13 +4,18 @@ import csv
 import io
 import json
 from pathlib import Path
+import sys
 
 import streamlit as st
 from rdkit import Chem
 from rdkit.Chem import Draw
 
-
 APP_DIR = Path(__file__).resolve().parent
+if str(APP_DIR) not in sys.path:
+    sys.path.insert(0, str(APP_DIR))
+from p2x4_api import P2X4API, P2X4APIError
+
+
 DATA_FILE = APP_DIR / "precomputed_results.json"
 
 st.set_page_config(
@@ -79,6 +84,68 @@ def records_to_csv(records: list[dict[str, object]]) -> bytes:
     return output.getvalue().encode("utf-8")
 
 
+def configured_api() -> P2X4API | None:
+    try:
+        base_url = str(st.secrets.get("P2X4_API_URL", "")).strip()
+        token = str(st.secrets.get("P2X4_API_TOKEN", "")).strip()
+    except Exception:
+        return None
+    if not base_url or not token:
+        return None
+    return P2X4API(base_url, token)
+
+
+def render_live_result(result: dict[str, object]) -> None:
+    summary = result.get("summary") or {}
+    descriptors = result.get("descriptors") or {}
+    st.success("Docking and pose analysis completed.")
+    cols = st.columns(4)
+    cols[0].metric("Median Vina", f"{float(summary.get('median_vina_score_kcal_mol', 0)):.3f} kcal/mol")
+    cols[1].metric("Valid-site fraction", f"{float(summary.get('valid_site_fraction', 0)):.1%}")
+    cols[2].metric("Contact recovery", f"{float(summary.get('median_native_contact_recovery', 0)):.1%}")
+    cols[3].metric("Molecular weight", f"{float(descriptors.get('molecular_weight', 0)):.2f}")
+    st.caption(
+        "Vina scores are computational ranking outputs, not measured binding affinities. "
+        "The complete result retains the frozen protocol, per-seed evidence and warnings."
+    )
+    st.download_button(
+        "Download complete live result (JSON)",
+        data=json.dumps(result, indent=2),
+        file_name=f"{result.get('job_id', 'p2x4-job')}-result.json",
+        mime="application/json",
+        key=f"live-result-{result.get('job_id', 'job')}",
+    )
+
+
+@st.fragment(run_every=5)
+def live_job_panel() -> None:
+    job_id = st.session_state.get("live_job_id")
+    if not job_id:
+        return
+    api = configured_api()
+    if api is None:
+        st.error("The live docking connection is no longer configured.")
+        return
+    try:
+        status = api.job_status(str(job_id))
+    except P2X4APIError as exc:
+        st.error(str(exc))
+        return
+    state = str(status.get("status", "unknown"))
+    percent = max(0, min(100, int(status.get("progress_percent") or (100 if state == "complete" else 4))))
+    st.progress(percent / 100, text=f"{percent}% · {status.get('step', state)}")
+    st.caption(f"Job `{job_id}` · {state}")
+    if state == "complete":
+        try:
+            render_live_result(api.job_result(str(job_id)))
+        except P2X4APIError as exc:
+            st.error(str(exc))
+    elif state == "failed":
+        st.error(str(status.get("error") or "The docking worker reported a failure."))
+    else:
+        st.info("The persistent worker owns this calculation. You may close this page and return later with the job ID.")
+
+
 data = load_data()
 records: list[dict[str, object]] = data["records"]  # type: ignore[assignment]
 protocol: dict[str, object] = data["protocol"]  # type: ignore[assignment]
@@ -86,10 +153,11 @@ protocol: dict[str, object] = data["protocol"]  # type: ignore[assignment]
 st.markdown(
     """
     <section class="hero">
-      <small>HUMAN P2X4 · READ-ONLY SCIENTIFIC DEMONSTRATION</small>
-      <h1>Explore frozen docking evidence.</h1>
+      <small>HUMAN P2X4 · AUDITABLE COMPUTATIONAL EVIDENCE</small>
+      <h1>Explore frozen evidence or submit a controlled live job.</h1>
       <p>Search the completed SNP-library campaign by compound code, name or SMILES.
-      This edition retrieves precomputed results only—it does not run AutoDock Vina.</p>
+      Streamlit does not run AutoDock Vina; when enabled, it securely submits one
+      protocol-locked job to the persistent docking worker.</p>
     </section>
     """,
     unsafe_allow_html=True,
@@ -108,13 +176,62 @@ with st.sidebar:
     st.write(f"**Seed:** `{protocol['seed']}`")
     st.write(f"**Exhaustiveness:** {protocol['exhaustiveness']}")
     st.divider()
-    st.caption("No uploads are retained. No new docking, activity prediction or ADMET calculation is performed.")
+    st.caption("The free interface retains no docking files. Live jobs, when enabled, are owned and stored by the external backend.")
 
 metric_cols = st.columns(4)
 metric_cols[0].metric("Frozen structures", len(records))
 metric_cols[1].metric("Redocking complete", protocol["completed"])
 metric_cols[2].metric("Exact score matches", protocol["exact_score_matches"])
 metric_cols[3].metric("Score drift", "0.000 kcal/mol")
+
+st.subheader("Live docking pilot")
+api = configured_api()
+if api is None:
+    st.info(
+        "Live docking is not configured on this deployment. The frozen 223-compound explorer below remains fully available."
+    )
+else:
+    try:
+        bridge = api.health()
+        if bridge.get("status") != "ok":
+            st.warning("The docking backend is reachable but reports degraded dependencies.")
+        elif not bridge.get("submissions_enabled"):
+            st.warning("The docking backend is online, but the administrator has not enabled public pilot submissions.")
+        else:
+            st.success(
+                f"Docking worker online · {bridge.get('inflight_jobs', 0)}/{bridge.get('inflight_limit', 25)} queued or running"
+            )
+            with st.form("live-docking-submission", clear_on_submit=False):
+                live_id = st.text_input("Compound code", placeholder="Example: PILOT-001")
+                live_smiles = st.text_area("Isomeric SMILES", placeholder="Paste one compound only")
+                intentional_replicate = st.checkbox(
+                    "I reviewed any exact-structure match and intend to create a computational replicate"
+                )
+                live_submit = st.form_submit_button(
+                    "Submit protocol-locked docking job", type="primary", use_container_width=True
+                )
+            st.caption(
+                "Locked settings: confirmation workflow, pH 6.8–8.0, up to 8 microspecies, frozen seeds, one active worker. "
+                "Do not submit confidential or unpublished structures to this shared pilot."
+            )
+            if live_submit:
+                if not live_id.strip():
+                    st.error("Enter a compound code.")
+                elif canonicalize(live_smiles) is None:
+                    st.error("Enter one valid SMILES structure.")
+                else:
+                    try:
+                        accepted = api.submit_job(live_id.strip(), live_smiles.strip(), intentional_replicate)
+                        st.session_state["live_job_id"] = accepted["job_id"]
+                        st.success(f"Queued `{accepted['job_id']}`.")
+                    except P2X4APIError as exc:
+                        st.error(str(exc))
+    except (P2X4APIError, ValueError) as exc:
+        st.warning(f"Live docking is temporarily unavailable. Frozen evidence remains accessible. {exc}")
+
+if st.session_state.get("live_job_id"):
+    with st.expander("Current live job", expanded=True):
+        live_job_panel()
 
 st.subheader("Search a precomputed compound")
 example_options = ["", *[f"{r['compound_id']} · {r['compound_name']}" for r in records[:12]]]
