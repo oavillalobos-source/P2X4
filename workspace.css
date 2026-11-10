@@ -1,7 +1,7 @@
 <style>
 :root {color-scheme: light;}
 .stApp,[data-testid="stAppViewContainer"], [data-testid="stHeader"] {background:#f5f8f5;color:#152822;}
-.block-container {max-width:1240px;padding-top:2.5rem;padding-bottom:3rem;}
+.block-container {max-width:1240px;padding-top:5rem;padding-bottom:3rem;}
 h1,h2,h3 {color:#152822;letter-spacing:-.035em;}
 h1 {font-size:clamp(2rem,4vw,3.6rem)!important;line-height:1.06!important;}
 .workspace-brand {display:flex;align-items:center;gap:12px;padding:0 0 24px;border-bottom:1px solid #d8e1dc;margin-bottom:20px;}
@@ -21,5 +21,5 @@ h1 {font-size:clamp(2rem,4vw,3.6rem)!important;line-height:1.06!important;}
 [data-testid="stExpander"] {background:white;border-radius:12px;}
 [data-testid="stCaptionContainer"]{color:#61736d;}
 video{border:1px solid #b9d1c7;border-radius:18px;}
-@media(max-width:650px){.session-badge{display:none}.block-container{padding:1.5rem 1rem;}h1{font-size:2.2rem!important;}}
+@media(max-width:650px){.session-badge{display:none}.block-container{padding:4.5rem 1rem 2rem;}h1{font-size:2.2rem!important;}}
 </style>
