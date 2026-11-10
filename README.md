@@ -30,6 +30,27 @@ are collapsible. The original pathway video supplies biological context only.
 Identity names remain as submitted; chemical classes and verified IUPAC names
 are not inferred. No login, admin or external analysis controls are simulated.
 
+## Optional authenticated backend mode
+
+Set `P2X4_BACKEND_URL` in Streamlit Secrets to the HTTPS origin of the original
+production backend. The app then uses per-researcher login, backend-owned jobs,
+the persistent registry, explicit ADMET requests, existing ProLIF downloads and
+role-restricted whole-batch administration. Cookies and CSRF tokens stay in that
+researcher's Streamlit session, never a global cache. Passwords are not written
+to files. Register, email verification and password recovery use the backend's
+existing login page. Backend ownership and administrator checks remain authoritative.
+
+Do not configure the old shared `P2X4_API_TOKEN` bridge for private researchers.
+Backend mode fails closed if the backend is down; it never silently sends jobs
+to the temporary local worker. Streamlit refresh can require signing in again,
+but backend records survive when the backend's database and results volumes
+are persistent and backed up. Existing temporary jobs are not automatically migrated.
+
+Without this setting the experimental session-only app remains unchanged.
+See `deployment/STREAMLIT_BACKEND.md` in the local full-platform repository for
+host requirements and acceptance checks. Laptop-only hosting does not provide
+laptop-independent availability or permanent cloud storage.
+
 Do not upload the original jobs directory, account database, tokens or private
 validation truth to the deployment repository. The package builder includes
 only source code and fixed reference inputs.

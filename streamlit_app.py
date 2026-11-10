@@ -2,6 +2,7 @@
 import csv
 import io
 import json
+import os
 import uuid
 from pathlib import Path
 import streamlit as st
@@ -12,7 +13,23 @@ from engine import Engine
 ROOT = Path(__file__).resolve().parent
 st.set_page_config(page_title='P2X4 Dock · Research workspace', page_icon='🧬', layout='wide')
 st.markdown((ROOT / 'workspace.css').read_text(), unsafe_allow_html=True)
-st.markdown('''<div class="workspace-brand"><div class="brand-box">P2<br>X4</div><div><strong>P2X4 Dock</strong><small>9BQI · BAY-1797 allosteric site</small></div><span class="session-badge">Experimental · session workspace</span></div>''', unsafe_allow_html=True)
+st.markdown('''<div class="workspace-brand"><div class="brand-box">P2<br>X4</div><div><strong>P2X4 Dock</strong><small>9BQI · BAY-1797 allosteric site</small></div><span class="session-badge">Research workspace</span></div>''', unsafe_allow_html=True)
+
+# Credentials stay in a per-browser session; no shared service-owner identity.
+try:
+    backend_url = st.secrets.get('P2X4_BACKEND_URL', '')
+except FileNotFoundError:
+    backend_url = ''
+backend_url = backend_url or os.environ.get('P2X4_BACKEND_URL', '')
+if backend_url:
+    from backend_workspace import render
+    from backend_client import BackendError
+    try:
+        render(backend_url, allow_local=os.environ.get('P2X4_BACKEND_LOCAL_TEST') == '1')
+    except (BackendError, ValueError) as exc:
+        st.error(str(exc))
+        st.caption('Backend mode stays active when the backend is unavailable. No jobs are silently sent to temporary storage.')
+    st.stop()
 
 @st.cache_resource
 def engine():
