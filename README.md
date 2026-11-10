@@ -22,6 +22,14 @@ and ProLIF remain features of the original platform. This experimental edition
 uses random session identifiers and does not list another session's compounds.
 It is intended for nonconfidential testing.
 
+The interface follows the original green P2/X4 workspace: Test a compound,
+Compound registry, More about the target receptor, dedicated Compound results,
+and Compare compounds. The registry is session-only; comparison supports two
+to four completed jobs. Seed evidence, state evidence and the auditable record
+are collapsible. The original pathway video supplies biological context only.
+Identity names remain as submitted; chemical classes and verified IUPAC names
+are not inferred. No login, admin or external analysis controls are simulated.
+
 Do not upload the original jobs directory, account database, tokens or private
 validation truth to the deployment repository. The package builder includes
 only source code and fixed reference inputs.

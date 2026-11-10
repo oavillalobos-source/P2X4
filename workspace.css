@@ -1,0 +1,25 @@
+<style>
+:root {color-scheme: light;}
+.stApp,[data-testid="stAppViewContainer"], [data-testid="stHeader"] {background:#f5f8f5;color:#152822;}
+.block-container {max-width:1240px;padding-top:2.5rem;padding-bottom:3rem;}
+h1,h2,h3 {color:#152822;letter-spacing:-.035em;}
+h1 {font-size:clamp(2rem,4vw,3.6rem)!important;line-height:1.06!important;}
+.workspace-brand {display:flex;align-items:center;gap:12px;padding:0 0 24px;border-bottom:1px solid #d8e1dc;margin-bottom:20px;}
+.brand-box {background:#13705d;color:white;border-radius:11px;padding:7px 13px;font-weight:800;line-height:1.1;letter-spacing:-.04em;}
+.workspace-brand strong {font-size:21px;}.workspace-brand small{display:block;color:#61736d;font-size:12px;}
+.session-badge{margin-left:auto;background:#e5f2ed;color:#0b5143;border:1px solid #c5dcd1;border-radius:20px;padding:7px 13px;font-size:12px;}
+.eyebrow{color:#13705d;font-size:12px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;margin-top:22px;}
+[data-testid="stRadio"]>div{gap:6px;flex-wrap:wrap;background:white;border:1px solid #d8e1dc;padding:8px;border-radius:12px;}
+[data-testid="stRadio"] label{padding:5px 9px;border-radius:8px;}
+[data-testid="stRadio"] label:has(input:checked){background:#e5f2ed;}
+[data-testid="stVerticalBlockBorderWrapper"]>div{border-radius:16px!important;background:white;}
+[data-testid="stTextInput"] input,[data-testid="stTextArea"] textarea {color:#152822;background:#fbfcfb;}
+[data-testid="stMetric"]{background:white;border:1px solid #d8e1dc;border-radius:12px;padding:15px;}
+[data-testid="stMetricValue"]{color:#13705d;font-size:1.7rem;}
+[data-testid="stBaseButton-primary"] {background:#13705d;border-color:#13705d;color:white;}
+[data-testid="stBaseButton-secondary"],[data-testid="stBaseButton-secondaryFormSubmit"]{background:white;color:#13705d;border-color:#c5d2cc;border-radius:9px;}
+[data-testid="stExpander"] {background:white;border-radius:12px;}
+[data-testid="stCaptionContainer"]{color:#61736d;}
+video{border:1px solid #b9d1c7;border-radius:18px;}
+@media(max-width:650px){.session-badge{display:none}.block-container{padding:1.5rem 1rem;}h1{font-size:2.2rem!important;}}
+</style>

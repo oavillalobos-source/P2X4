@@ -1,17 +1,18 @@
+"""Original P2X4 workspace navigation adapted to temporary Streamlit sessions."""
 import csv
 import io
 import json
 import uuid
+from pathlib import Path
 import streamlit as st
 from rdkit import Chem
-from rdkit.Chem import Draw
+from rdkit.Chem import Draw, Descriptors, rdMolDescriptors
 from engine import Engine
 
-st.set_page_config(page_title='P2X4 Dock · Live experimental edition', page_icon='🧬', layout='wide')
-st.title('P2X4 Dock')
-st.caption('Live experimental docking on Streamlit Community Cloud')
-st.warning('Results and queued jobs are temporary. Hosting restarts can interrupt calculations or remove files. Download each completed result. Refreshing or closing the session can lose access to its jobs.')
-st.info('Human P2X4 · 9BQI · BAY-1797 pocket · five frozen seeds · pH 6.8–8.0 · up to eight microspecies. Vina scores are computational scores. The activity model remains development only and has not been externally validated.')
+ROOT = Path(__file__).resolve().parent
+st.set_page_config(page_title='P2X4 Dock · Research workspace', page_icon='🧬', layout='wide')
+st.markdown((ROOT / 'workspace.css').read_text(), unsafe_allow_html=True)
+st.markdown('''<div class="workspace-brand"><div class="brand-box">P2<br>X4</div><div><strong>P2X4 Dock</strong><small>9BQI · BAY-1797 allosteric site</small></div><span class="session-badge">Experimental · session workspace</span></div>''', unsafe_allow_html=True)
 
 @st.cache_resource
 def engine():
@@ -21,6 +22,30 @@ if 'owner' not in st.session_state:
     st.session_state.owner = uuid.uuid4().hex
 owner = st.session_state.owner
 worker = engine()
+
+def navigate(page, job_id=None):
+    st.session_state.nav = page
+    if job_id:
+        st.session_state.selected_job = job_id
+
+pages = ['Test a compound', 'Compound registry', 'More about the target receptor', 'Compound results', 'Compare compounds']
+page = st.radio('Workspace navigation', pages, horizontal=True, key='nav', label_visibility='collapsed')
+st.caption('Temporary session: download results before leaving. Restarting the app or refreshing your session can lose jobs and access. No account sign-in is required.')
+
+help_text = {
+    pages[0]: 'Enter a compound code, its supplied name and isomeric SMILES. Inspect the structure, then run the fixed five-seed protocol. For a batch, upload the provided CSV template (up to 25 rows). Recent jobs link to a separate results view.',
+    pages[1]: 'Search jobs from this browser session. Open a completed compound to review its evidence or choose up to four completed jobs in Compare compounds. Download the session table and result ZIPs before leaving.',
+    pages[2]: 'Read the receptor context and the limits of the fixed 9BQI docking model. Follow the primary-source links for biological and structural evidence.',
+    pages[3]: 'Choose one of your jobs. Completed results include identity, scores, seed and state evidence, descriptors, warnings and provenance. Download the ZIP for structures and complete evidence. A docking score does not establish measured activity.',
+    pages[4]: 'Select two to four completed jobs for side-by-side inspection. Compare structures, pose evidence and protocol settings; raw docking scores do not provide calibrated affinity across different scaffolds.'
+}
+with st.popover('ⓘ  Help for this page'):
+    st.write(help_text[page])
+
+def hero(kicker, title, description):
+    st.markdown(f'<p class="eyebrow">{kicker}</p>', unsafe_allow_html=True)
+    st.title(title)
+    st.write(description)
 
 def validate(rows):
     if not 1 <= len(rows) <= 25:
@@ -39,58 +64,254 @@ def validate(rows):
         seen.add(row['compound_id'])
     return rows
 
-single, batch = st.tabs(['Test a compound', 'Batch campaign'])
-with single:
-    with st.form('single'):
-        code = st.text_input('Compound code', max_chars=80)
-        name = st.text_input('Compound name or IUPAC name as supplied', max_chars=500)
-        smiles = st.text_area('Isomeric SMILES', max_chars=4000)
-        submit = st.form_submit_button('Queue live docking')
-    if submit:
-        try:
-            worker.submit(owner, validate([dict(compound_id=code.strip(), compound_name=name.strip(), smiles=smiles.strip())]))
-            st.success('Compound queued.')
-        except ValueError as exc:
-            st.error(str(exc))
-with batch:
-    st.download_button('Download batch template', 'compound_id,Compound Name,SMILES\nEX001,Ethanol,CCO\n', 'batch-template.csv')
-    upload = st.file_uploader('CSV · up to 25 compounds', type='csv')
-    if st.button('Queue batch', disabled=upload is None):
-        try:
-            if upload.size > 200_000:
-                raise ValueError('CSV must be smaller than 200 KB.')
-            reader = csv.DictReader(io.StringIO(upload.getvalue().decode('utf-8-sig')))
-            if not {'compound_id', 'Compound Name', 'SMILES'} <= set(reader.fieldnames or []):
-                raise ValueError('Required columns: compound_id,Compound Name,SMILES')
-            rows = [dict(compound_id=r['compound_id'].strip(), compound_name=r['Compound Name'].strip(), smiles=r['SMILES'].strip()) for r in reader]
-            worker.submit(owner, validate(rows))
-            st.success(f'{len(rows)} compounds queued.')
-        except (ValueError, TypeError, AttributeError) as exc:
-            st.error(str(exc))
+def read_result(job):
+    if job['state'] != 'complete':
+        return None
+    try:
+        return json.loads((worker.root / job['job_id'] / 'result.json').read_text())
+    except (OSError, ValueError):
+        return None
 
-st.subheader('Your session results')
-st.caption('One compound runs at a time across the shared app. ADMET and ProLIF are not included in this experimental edition. The existing researcher accounts and registry remain on the original platform.')
-if st.button('Stop my waiting compounds'):
-    worker.cancel_waiting(owner)
+def table_row(job):
+    result = read_result(job) or {}
+    summary = result.get('summary', {})
+    return {'Code': job['compound_id'], 'Supplied name': job['compound_name'], 'Status': job['state'],
+            'SMILES': job['smiles'], 'Median Vina (kcal/mol)': summary.get('median_vina_score_kcal_mol'),
+            'Site-valid fraction': summary.get('valid_site_fraction'), 'Job ID': job['job_id']}
+
+def csv_bytes(rows):
+    output = io.StringIO()
+    if rows:
+        writer = csv.DictWriter(output, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+    return output.getvalue().encode('utf-8-sig')
+
+def progress(job):
+    if job['state'] == 'running':
+        try:
+            status = json.loads((worker.root / job['job_id'] / 'status.json').read_text())
+            percent = max(0, min(100, int(status.get('progress_percent', 0))))
+            st.progress(percent, text=f"{percent}% · {status.get('detail', status.get('step', 'Running'))}")
+        except (OSError, ValueError):
+            st.info('Preparing calculation…')
+    elif job['state'] == 'queued':
+        st.info('Queued · another compound may be running in the shared queue.')
+    if job.get('error'):
+        st.error(job['error'])
 
 @st.fragment(run_every=5)
-def results():
-    for job in worker.owned(owner):
-        with st.expander(f"{job['compound_id']} · {job['compound_name']} · {job['state']}", expanded=job['state'] == 'running'):
-            path = worker.root / job['job_id']
-            if job['state'] == 'running':
+def recent_jobs():
+    jobs = worker.owned(owner)
+    with st.expander(f'Recent jobs · {len(jobs)}', expanded=any(j['state'] in ('running', 'queued') for j in jobs)):
+        if not jobs:
+            st.caption('Your submitted compounds will appear here.')
+        for job in reversed(jobs):
+            st.write(f"**{job['compound_id']}** · {job['compound_name']} · {job['state']}")
+            progress(job)
+            if st.button('Open compound result', key='recent-'+job['job_id'], on_click=navigate, args=('Compound results', job['job_id'])):
+                st.rerun()
+        if jobs:
+            if st.button('Stop my waiting compounds', key='stop-recent'):
+                worker.cancel_waiting(owner)
+                st.rerun(scope='fragment')
+            st.caption('Stops your queued compounds only. A running calculation continues.')
+
+def protocol():
+    st.markdown('**Replicated consensus docking · 5 frozen seeds**')
+    st.caption('Human P2X4 trimer · 9BQI · BAY-1797 pocket · exhaustiveness 16')
+    a, b, c = st.columns(3)
+    a.metric('Minimum pH', '6.8'); b.metric('Maximum pH', '8.0'); c.metric('State cap', '8')
+    st.caption('Automatic microspecies enumeration. One compound at a time; up to 40 Vina runs per compound. Protocol settings are fixed.')
+
+if page == 'Test a compound':
+    left, right = st.columns([1.6, 1], gap='large')
+    with left:
+        hero('Structure-guided exploration', 'Explore the P2X4 pocket.', 'From a molecular structure to traceable docking evidence. Prepare, dock and inspect a compound against the fixed human P2X4 allosteric site.')
+    with right:
+        if (ROOT / 'pathway.mp4').exists():
+            st.video(str(ROOT / 'pathway.mp4'), autoplay=True, muted=True, loop=True)
+        st.caption('ATP–P2X4 neuroimmune signaling. Explanatory illustration, not docking or time-course data.')
+    single, batch = st.tabs(['Single compound', 'Batch campaign'])
+    with single:
+        entry, workflow = st.columns([1.65, 1], gap='large')
+        with entry, st.container(border=True):
+            st.subheader('01 · Define compound')
+            code = st.text_input('Compound code', max_chars=80, placeholder='e.g. SNP-new-001')
+            name = st.text_input('Compound name or IUPAC name as supplied', max_chars=500)
+            smiles = st.text_area('Isomeric SMILES', max_chars=4000, placeholder='Paste one molecular structure')
+            if st.button('Inspect structure'):
                 try:
-                    progress = json.loads((path / 'status.json').read_text())
-                    st.progress(min(100, int(progress.get('progress_percent', 0))), text=progress.get('detail', progress.get('step', 'Running')))
-                except (OSError, ValueError):
-                    st.write('Preparing calculation…')
-            if job.get('error'):
-                st.error(job['error'])
-            if job['state'] == 'complete':
-                result = json.loads((path / 'result.json').read_text())
-                st.image(Draw.MolToImage(Chem.MolFromSmiles(job['smiles']), size=(450, 250)))
-                st.metric('Median Vina score (kcal/mol)', result['summary']['median_vina_score_kcal_mol'])
-                st.json(result['summary'], expanded=False)
-            if job['state'] in ('complete', 'failed'):
-                st.download_button('Download result and evidence ZIP', worker.download(owner, job['job_id']), f"{job['job_id']}.zip", key=job['job_id'])
-results()
+                    row = validate([dict(compound_id=code.strip() or 'PREVIEW', compound_name=name.strip() or 'Preview', smiles=smiles.strip())])[0]
+                    mol = Chem.MolFromSmiles(row['smiles'])
+                    st.image(Draw.MolToImage(mol, size=(500, 260)))
+                    st.write({'Formula': rdMolDescriptors.CalcMolFormula(mol), 'Molecular weight': round(Descriptors.MolWt(mol), 3), 'Formal charge': Chem.GetFormalCharge(mol), 'Fragments': len(Chem.GetMolFrags(mol))})
+                    if any(label == '?' for _, label in Chem.FindMolChiralCenters(mol, includeUnassigned=True)):
+                        st.warning('Unspecified stereochemistry detected. Review the submitted identity.')
+                except ValueError as exc:
+                    st.error(str(exc))
+            protocol()
+            if st.button('Run replicated P2X4 consensus', type='primary', use_container_width=True):
+                try:
+                    worker.submit(owner, validate([dict(compound_id=code.strip(), compound_name=name.strip(), smiles=smiles.strip())]))
+                    st.success('Compound queued. Follow progress in Recent jobs.')
+                except ValueError as exc:
+                    st.error(str(exc))
+        with workflow, st.container(border=True):
+            st.subheader('02 · Workflow')
+            for title, detail in [('Structure QC', 'SMILES parsing, charge and stereochemistry'), ('Ligand preparation', 'ETKDGv3, MMFF/UFF and Meeko'), ('P2X4 docking', 'Fixed 9BQI trimer and BAY-1797 site'), ('Pose analysis', 'Contacts, anchors, clashes and seed consistency'), ('Evidence report', 'JSON, CSV, SDF, PDBQT and readable summary')]:
+                st.markdown(f'**{title}**'); st.caption(detail)
+            st.info('Rigid inhibited-state receptor. Docking cannot establish agonism, antagonism or measured affinity.')
+    with batch, st.container(border=True):
+        st.subheader('Batch consensus campaign')
+        st.write('Upload up to 25 compounds. Names are retained as supplied. The shared worker processes one compound at a time.')
+        st.download_button('Download batch template', 'compound_id,Compound Name,SMILES\nEX001,Ethanol,CCO\n', 'batch-template.csv')
+        upload = st.file_uploader('CSV file', type='csv')
+        rows = None
+        if upload:
+            try:
+                if upload.size > 200_000:
+                    raise ValueError('CSV must be smaller than 200 KB.')
+                reader = csv.DictReader(io.StringIO(upload.getvalue().decode('utf-8-sig')))
+                if not {'compound_id', 'Compound Name', 'SMILES'} <= set(reader.fieldnames or []):
+                    raise ValueError('Required columns: compound_id,Compound Name,SMILES')
+                rows = validate([dict(compound_id=r['compound_id'].strip(), compound_name=r['Compound Name'].strip(), smiles=r['SMILES'].strip()) for r in reader])
+                st.dataframe(rows, hide_index=True, use_container_width=True)
+            except (ValueError, TypeError, AttributeError) as exc:
+                st.error(str(exc)); rows = None
+        with st.expander('Fixed batch protocol'):
+            protocol()
+        if st.button('Queue consensus campaign', type='primary', disabled=rows is None):
+            try:
+                worker.submit(owner, rows)
+                st.success(f'{len(rows)} compounds queued.')
+            except ValueError as exc:
+                st.error(str(exc))
+    recent_jobs()
+
+elif page == 'Compound registry':
+    hero('In-silico P2X4 portfolio', 'Compound registry.', 'Search this session’s compounds, open their evidence and compare completed calculations.')
+    @st.fragment(run_every=5)
+    def registry():
+        jobs = worker.owned(owner)
+        cols = st.columns(3)
+        for col, label, count in zip(cols, ['Session compounds', 'Completed', 'Waiting / running'], [len(jobs), sum(j['state']=='complete' for j in jobs), sum(j['state'] in ('queued','running') for j in jobs)]):
+            col.metric(label, count)
+        search = st.text_input('Search code, supplied name or SMILES').lower().strip()
+        status = st.selectbox('Status', ['All', 'complete', 'running', 'queued', 'failed', 'cancelled'])
+        filtered = [j for j in jobs if (status == 'All' or j['state']==status) and search in ' '.join([j['compound_id'], j['compound_name'], j['smiles']]).lower()]
+        if not jobs:
+            st.info('No compounds in this session yet. Submit a structure in Test a compound.')
+        if filtered:
+            st.dataframe([table_row(j) for j in filtered], hide_index=True, use_container_width=True)
+            chosen = st.selectbox('Open a compound', [j['job_id'] for j in filtered], format_func=lambda jid: next(f"{j['compound_id']} · {j['compound_name']} · {j['state']}" for j in filtered if j['job_id']==jid))
+            if st.button('Open dedicated result', on_click=navigate, args=('Compound results', chosen), type='primary'):
+                st.rerun()
+            st.download_button('Export registry CSV', csv_bytes([table_row(j) for j in filtered]), 'p2x4-session-registry.csv')
+        if st.button('Compare completed compounds', on_click=navigate, args=('Compare compounds',)):
+            st.rerun()
+        st.caption('Session records only. This view does not import private records from the original platform or automatically resolve duplicate identities.')
+    registry()
+
+elif page == 'Compound results':
+    hero('Traceable computational evidence', 'Compound result.', 'Review one calculation in a dedicated workspace.')
+    @st.fragment(run_every=5)
+    def detail():
+        jobs = worker.owned(owner)
+        if not jobs:
+            st.info('Submit a compound to create a result.'); return
+        ids = [j['job_id'] for j in jobs]
+        preferred = st.session_state.get('selected_job')
+        if preferred not in ids:
+            st.session_state.selected_job = ids[-1]
+        selected = st.selectbox('Compound', ids, key='selected_job', format_func=lambda jid: next(f"{j['compound_id']} · {j['compound_name']}" for j in jobs if j['job_id']==jid))
+        job = next(j for j in jobs if j['job_id']==selected)
+        st.caption(f"Status: {job['state']} · Job {job['job_id']}")
+        progress(job)
+        result = read_result(job)
+        if result:
+            structure, identity = st.columns([1, 1.5])
+            with structure:
+                st.image(Draw.MolToImage(Chem.MolFromSmiles(job['smiles']), size=(500, 300)))
+            with identity:
+                st.subheader(job['compound_id']); st.write(job['compound_name'])
+                st.caption('Name as supplied; not an independently verified IUPAC assignment.')
+                desc = result.get('descriptors', {})
+                st.write(f"**Molecular formula:** {desc.get('molecular_formula', 'Unavailable')}")
+                st.write(f"**Molecular weight:** {desc.get('molecular_weight', 'Unavailable')} g/mol")
+                st.caption('Chemical class: not assigned in this edition.')
+            summary = result['summary']
+            cols = st.columns(3)
+            cols[0].metric('Median Vina · kcal/mol', summary['median_vina_score_kcal_mol'])
+            cols[1].metric('Site-valid seeds', f"{summary['valid_site_count']}/{summary['seed_count']}")
+            cols[2].metric('Native-contact recovery', f"{summary['median_native_contact_recovery']:.1%}")
+            st.info('Computational evidence only. The activity rule remains development only; scores and contact recovery do not establish measured affinity or activity.')
+            overview, evidence, properties, exports = st.tabs(['Overview', 'Pose & interaction evidence', 'Molecular properties', 'Report & downloads'])
+            with overview:
+                st.write(result.get('methods_text', ''))
+                with st.expander('Auditable compound record'):
+                    st.json({k: result.get(k) for k in ['submitted_identity', 'input', 'settings', 'hosting', 'microspecies_enumeration']})
+                with st.expander('Warnings and interpretation'):
+                    for warning in result.get('warnings', []):
+                        st.write(warning)
+            with evidence:
+                with st.expander('Per-seed evidence'):
+                    st.dataframe(result.get('per_seed', []), hide_index=True, use_container_width=True)
+                with st.expander('State-level evidence'):
+                    st.dataframe([dict(m['state'], **m['summary']) for m in result.get('microspecies', [])], hide_index=True, use_container_width=True)
+                    st.json(result.get('microspecies_consensus', {}), expanded=False)
+                st.caption('Contacts above come from the docking runner. ProLIF interaction diagrams and TIFF generation are not available in this cloud edition.')
+            with properties:
+                st.dataframe([{'Property': k, 'Value': str(v)} for k,v in desc.items()], hide_index=True, use_container_width=True)
+                st.caption('Calculated descriptors, not an ADMET or toxicity prediction. External ADMET, selectivity and safety evidence has not been generated.')
+            with exports:
+                st.download_button('Download result JSON', json.dumps(result, indent=2), f'{selected}-result.json', mime='application/json')
+                st.download_button('Download per-seed CSV', csv_bytes(result.get('per_seed', [])), f'{selected}-seeds.csv')
+                st.caption('The complete ZIP below includes prepared structures, docked poses, logs and the methods report.')
+        if job['state'] in ('complete', 'failed'):
+            st.download_button('Download complete evidence ZIP', worker.download(owner, selected), f'{selected}.zip', type='primary')
+    detail()
+
+elif page == 'Compare compounds':
+    hero('Side-by-side evidence', 'Compare compounds.', 'Review up to four completed calculations without treating docking scores as measured affinities.')
+    jobs = [j for j in worker.owned(owner) if read_result(j)]
+    if len(jobs) < 2:
+        st.info('Complete at least two compounds in this session to compare them.')
+    else:
+        selected = st.multiselect('Choose two to four compounds', [j['job_id'] for j in jobs], max_selections=4, format_func=lambda jid: next(f"{j['compound_id']} · {j['compound_name']} ({jid[:6]})" for j in jobs if j['job_id']==jid))
+        if len(selected) >= 2:
+            chosen = [next(j for j in jobs if j['job_id']==jid) for jid in selected]
+            for col, job in zip(st.columns(len(chosen)), chosen):
+                result = read_result(job)
+                with col, st.container(border=True):
+                    st.subheader(job['compound_id']); st.write(job['compound_name'])
+                    st.image(Draw.MolToImage(Chem.MolFromSmiles(job['smiles']), size=(350, 240)))
+                    st.metric('Median Vina · kcal/mol', result['summary']['median_vina_score_kcal_mol'])
+                    st.metric('Site-valid fraction', f"{result['summary']['valid_site_fraction']:.1%}")
+                    st.write(f"Native-contact recovery: {result['summary']['median_native_contact_recovery']:.1%}")
+                    st.write(f"Molecular weight: {result['descriptors']['molecular_weight']} g/mol")
+                    with st.expander('Protocol and provenance'):
+                        st.json(result['settings'])
+            st.download_button('Export comparison CSV', csv_bytes([table_row(j) for j in chosen]), 'p2x4-comparison.csv')
+
+else:
+    hero('Target receptor reference', 'More about P2X4.', 'An ATP-gated cation channel with a structurally defined allosteric pocket.')
+    biology, structure, scope = st.tabs(['P2X family & activation', 'Structural model', 'Workflow scope & sources'])
+    with biology:
+        st.subheader('Three subunits. One central pore.')
+        st.write('P2X receptors are ATP-gated ion channels, distinct from metabotropic P2Y receptors. P2X1–P2X7 comprise the family. Each subunit has two transmembrane helices and a large extracellular domain; three subunits form a channel.')
+        st.write('ATP binds between neighboring subunits, driving conformational changes that open a nonselective cation pathway. P2X4 is studied in neuroimmune signaling, pain, inflammation and vascular biology. Findings depend on species, tissue and assay conditions.')
+        st.markdown('**Apo closed → ATP engaged → Open pore → Desensitized**')
+        if (ROOT / 'pathway.mp4').exists():
+            st.video(str(ROOT / 'pathway.mp4'))
+        st.caption('Explanatory biological context; not a molecular dynamics simulation.')
+    with structure:
+        st.subheader('PDB 9BQI · BAY-1797 pocket')
+        st.write('The workflow retains the human P2X4 A/B/C trimer in a rigid inhibited-state configuration. The search box is centered on the BAY-1797 allosteric pocket. Five deterministic seeds are run for each retained microspecies.')
+        protocol()
+    with scope:
+        st.write('Supports pose generation, pocket-contact analysis, clash checks, replicated Vina scores and traceable evidence downloads. It does not establish measured affinity, functional antagonism, selectivity, efficacy, safety or therapeutic benefit.')
+        st.markdown('[RCSB PDB 9BQI](https://www.rcsb.org/structure/9BQI) · [Primary structural study](https://pubmed.ncbi.nlm.nih.gov/39823330/) · [IUPHAR P2X family review](https://pubmed.ncbi.nlm.nih.gov/33125712/)')
+
+st.divider()
+st.caption('P2X4 Dock · Experimental live edition | Session storage only | Researcher accounts, permanent registry and administrator controls remain on the original platform.')
