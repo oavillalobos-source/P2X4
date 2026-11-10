@@ -1,0 +1,114 @@
+"""One process at a time across all sessions; temporary, session-owned jobs."""
+import io
+import hashlib
+import json
+import os
+import signal
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import uuid
+import zipfile
+import shutil
+import platform
+from urllib.request import urlopen
+from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
+
+ROOT = Path(__file__).resolve().parent
+
+class Engine:
+    def __init__(self):
+        self.lock = threading.RLock()
+        self.pool = ThreadPoolExecutor(max_workers=1)
+        self.root = Path(tempfile.mkdtemp(prefix='p2x4-live-'))
+        self.jobs = {}
+        if platform.system() == 'Linux':
+            manifest = json.loads((ROOT / 'bundle_manifest.json').read_text())
+            binary = self.root / 'vina'
+            with urlopen(manifest['vina_source'], timeout=90) as response:
+                data = response.read()
+            if hashlib.sha256(data).hexdigest() != manifest['files']['bin/vina']:
+                raise RuntimeError('Vina download failed its frozen SHA-256 check.')
+            binary.write_bytes(data)
+            binary.chmod(0o755)
+            self.vina = str(binary)
+        else:
+            self.vina = shutil.which('vina') or str(Path.home() / '.local/bin/vina')
+
+    def submit(self, owner, rows):
+        with self.lock:
+            active = sum(j['state'] in ('queued', 'running') for j in self.jobs.values())
+            if len(self.jobs) + len(rows) > 50:
+                raise ValueError('This temporary pilot has reached 50 stored jobs. Download results before the app administrator restarts it.')
+            if not 1 <= len(rows) <= 25 or active + len(rows) > 25:
+                raise ValueError('The shared queue holds at most 25 waiting or running compounds. Try again later.')
+            ids = []
+            for row in rows:
+                job_id = uuid.uuid4().hex
+                self.jobs[job_id] = dict(row, owner=owner, state='queued', job_id=job_id, created=time.time())
+                ids.append(job_id)
+                self.pool.submit(self._run, job_id)
+            return ids
+
+    def _run(self, job_id):
+        with self.lock:
+            job = self.jobs[job_id]
+            if job['state'] != 'queued':
+                return
+            job['state'] = 'running'
+        path = self.root / job_id
+        command = [sys.executable, str(ROOT / 'launch.py'), '--compound-id', job['compound_id'],
+                   '--job-id', job_id, '--smiles', job['smiles'], '--output-root', str(self.root),
+                   '--mode', 'confirmation', '--microspecies', '--ph-min', '6.8', '--ph-max', '8.0',
+                   '--max-microspecies', '8', '--workers', '1', '--cpu-per-job', '1']
+        env = dict(os.environ, OMP_NUM_THREADS='1', OPENBLAS_NUM_THREADS='1', MKL_NUM_THREADS='1', P2X4_LIVE_VINA=self.vina)
+        try:
+            with (self.root / f'{job_id}.log').open('w') as log:
+                proc = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, env=env, start_new_session=True)
+                try:
+                    code = proc.wait(timeout=7200)
+                except subprocess.TimeoutExpired:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                    proc.wait()
+                    raise RuntimeError('Two-hour runtime limit reached. Partial output is downloadable; this run is incomplete.')
+            if code != 0 or not (path / 'result.json').is_file():
+                raise RuntimeError('Docking did not complete. Download the log and partial output for diagnosis.')
+            result = json.loads((path / 'result.json').read_text())
+            result['submitted_identity'] = {'compound_id': job['compound_id'], 'compound_name': job['compound_name']}
+            result['hosting'] = {'edition': 'Streamlit experimental', 'storage': 'temporary', 'cpu_per_job': 1}
+            (path / 'result.json').write_text(json.dumps(result, indent=2))
+            with self.lock:
+                job['state'] = 'complete'
+        except Exception as exc:
+            with self.lock:
+                job.update(state='failed', error=str(exc))
+
+    def owned(self, owner):
+        with self.lock:
+            return [dict(j) for j in self.jobs.values() if j['owner'] == owner]
+
+    def cancel_waiting(self, owner):
+        with self.lock:
+            for job in self.jobs.values():
+                if job['owner'] == owner and job['state'] == 'queued':
+                    job['state'] = 'cancelled'
+
+    def download(self, owner, job_id):
+        with self.lock:
+            job = self.jobs.get(job_id)
+            if not job or job['owner'] != owner:
+                raise PermissionError('This job belongs to a different session.')
+            if job['state'] in ('queued', 'running'):
+                raise ValueError('Download becomes available when the process finishes.')
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as archive:
+            for path in (self.root / job_id).rglob('*'):
+                if path.is_file():
+                    archive.write(path, path.relative_to(self.root / job_id))
+            log = self.root / f'{job_id}.log'
+            if log.exists():
+                archive.write(log, 'runner.log')
+        return buffer.getvalue()

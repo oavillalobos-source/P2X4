@@ -1,340 +1,96 @@
-from __future__ import annotations
-
 import csv
 import io
 import json
-from pathlib import Path
-import sys
-
+import uuid
 import streamlit as st
 from rdkit import Chem
 from rdkit.Chem import Draw
+from engine import Engine
 
-APP_DIR = Path(__file__).resolve().parent
-if str(APP_DIR) not in sys.path:
-    sys.path.insert(0, str(APP_DIR))
-from p2x4_api import P2X4API, P2X4APIError
+st.set_page_config(page_title='P2X4 Dock · Live experimental edition', page_icon='🧬', layout='wide')
+st.title('P2X4 Dock')
+st.caption('Live experimental docking on Streamlit Community Cloud')
+st.warning('Results and queued jobs are temporary. Hosting restarts can interrupt calculations or remove files. Download each completed result. Refreshing or closing the session can lose access to its jobs.')
+st.info('Human P2X4 · 9BQI · BAY-1797 pocket · five frozen seeds · pH 6.8–8.0 · up to eight microspecies. Vina scores are computational scores. The activity model remains development only and has not been externally validated.')
 
+@st.cache_resource
+def engine():
+    return Engine()
 
-DATA_FILE = APP_DIR / "precomputed_results.json"
+if 'owner' not in st.session_state:
+    st.session_state.owner = uuid.uuid4().hex
+owner = st.session_state.owner
+worker = engine()
 
-st.set_page_config(
-    page_title="P2X4 Dock · Precomputed demonstration",
-    page_icon="🧬",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+def validate(rows):
+    if not 1 <= len(rows) <= 25:
+        raise ValueError('Supply between 1 and 25 compounds.')
+    seen = set()
+    for row in rows:
+        if not row['compound_id'] or len(row['compound_id']) > 80 or row['compound_id'] in seen:
+            raise ValueError('Compound codes must be unique, nonempty and at most 80 characters.')
+        if not row['compound_name'] or len(row['compound_name']) > 500:
+            raise ValueError('Supply a compound name of at most 500 characters.')
+        if len(row['smiles']) > 4000:
+            raise ValueError('SMILES exceeds the experimental hosting limit.')
+        mol = Chem.MolFromSmiles(row['smiles'])
+        if mol is None or not 1 <= mol.GetNumHeavyAtoms() <= 100:
+            raise ValueError(f"{row['compound_id']}: supply a valid structure with 1–100 heavy atoms.")
+        seen.add(row['compound_id'])
+    return rows
 
-st.markdown(
-    """
-    <style>
-    :root { --ink:#173236; --teal:#287d72; --sand:#f3eadb; --gold:#d29b42; }
-    .stApp { background: #f7f9f6; color: var(--ink); }
-    [data-testid="stSidebar"] { background: #173236; color: white; }
-    [data-testid="stSidebar"] * { color: white; }
-    .hero { padding: 1.4rem 1.6rem; border-radius: 22px; color: white;
-      background: linear-gradient(125deg,#173236 0%,#245b59 68%,#287d72 100%);
-      box-shadow: 0 18px 44px rgba(23,50,54,.16); margin-bottom: 1rem; }
-    .hero small { color:#f0c77e; letter-spacing:.14em; font-weight:800; }
-    .hero h1 { margin:.25rem 0 .45rem; font-size:clamp(2rem,5vw,4rem); line-height:.98; }
-    .hero p { max-width:780px; color:#e7f1ed; font-size:1.04rem; }
-    .notice { padding:.9rem 1rem; border-left:5px solid var(--gold); border-radius:10px;
-      background:#fff8e9; margin:.5rem 0 1.2rem; }
-    .evidence { background:white; border:1px solid #dce8e3; border-radius:16px;
-      padding:1rem 1.1rem; height:100%; }
-    .match { border:1px solid #c9ded7; border-radius:18px; padding:1rem 1.1rem;
-      background:white; box-shadow:0 8px 24px rgba(23,50,54,.08); }
-    div[data-testid="stMetric"] { background:white; border:1px solid #dce8e3;
-      padding:.8rem; border-radius:14px; }
-    .footer-note { color:#5d706f; font-size:.85rem; border-top:1px solid #dce8e3;
-      margin-top:2rem; padding-top:1rem; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+single, batch = st.tabs(['Test a compound', 'Batch campaign'])
+with single:
+    with st.form('single'):
+        code = st.text_input('Compound code', max_chars=80)
+        name = st.text_input('Compound name or IUPAC name as supplied', max_chars=500)
+        smiles = st.text_area('Isomeric SMILES', max_chars=4000)
+        submit = st.form_submit_button('Queue live docking')
+    if submit:
+        try:
+            worker.submit(owner, validate([dict(compound_id=code.strip(), compound_name=name.strip(), smiles=smiles.strip())]))
+            st.success('Compound queued.')
+        except ValueError as exc:
+            st.error(str(exc))
+with batch:
+    st.download_button('Download batch template', 'compound_id,Compound Name,SMILES\nEX001,Ethanol,CCO\n', 'batch-template.csv')
+    upload = st.file_uploader('CSV · up to 25 compounds', type='csv')
+    if st.button('Queue batch', disabled=upload is None):
+        try:
+            if upload.size > 200_000:
+                raise ValueError('CSV must be smaller than 200 KB.')
+            reader = csv.DictReader(io.StringIO(upload.getvalue().decode('utf-8-sig')))
+            if not {'compound_id', 'Compound Name', 'SMILES'} <= set(reader.fieldnames or []):
+                raise ValueError('Required columns: compound_id,Compound Name,SMILES')
+            rows = [dict(compound_id=r['compound_id'].strip(), compound_name=r['Compound Name'].strip(), smiles=r['SMILES'].strip()) for r in reader]
+            worker.submit(owner, validate(rows))
+            st.success(f'{len(rows)} compounds queued.')
+        except (ValueError, TypeError, AttributeError) as exc:
+            st.error(str(exc))
 
-
-@st.cache_data
-def load_data() -> dict[str, object]:
-    return json.loads(DATA_FILE.read_text(encoding="utf-8"))
-
-
-def canonicalize(value: str) -> str | None:
-    mol = Chem.MolFromSmiles(value.strip())
-    if mol is None:
-        return None
-    return Chem.MolToSmiles(mol, isomericSmiles=True, canonical=True)
-
-
-def molecule_image(smiles: str):
-    mol = Chem.MolFromSmiles(smiles)
-    return Draw.MolToImage(mol, size=(620, 360), legend="Precomputed library structure")
-
-
-def records_to_csv(records: list[dict[str, object]]) -> bytes:
-    keys = [
-        "compound_id", "compound_name", "compound_class", "pubchem_cid", "smiles",
-        "formula", "molecular_weight", "original_vina_kcal_mol",
-        "redocked_vina_kcal_mol", "score_delta_kcal_mol", "exact_score_match",
-    ]
-    output = io.StringIO()
-    writer = csv.DictWriter(output, fieldnames=keys, extrasaction="ignore")
-    writer.writeheader()
-    writer.writerows(records)
-    return output.getvalue().encode("utf-8")
-
-
-def configured_api() -> P2X4API | None:
-    try:
-        base_url = str(st.secrets.get("P2X4_API_URL", "")).strip()
-        token = str(st.secrets.get("P2X4_API_TOKEN", "")).strip()
-    except Exception:
-        return None
-    if not base_url or not token:
-        return None
-    return P2X4API(base_url, token)
-
-
-def render_live_result(result: dict[str, object]) -> None:
-    summary = result.get("summary") or {}
-    descriptors = result.get("descriptors") or {}
-    st.success("Docking and pose analysis completed.")
-    cols = st.columns(4)
-    cols[0].metric("Median Vina", f"{float(summary.get('median_vina_score_kcal_mol', 0)):.3f} kcal/mol")
-    cols[1].metric("Valid-site fraction", f"{float(summary.get('valid_site_fraction', 0)):.1%}")
-    cols[2].metric("Contact recovery", f"{float(summary.get('median_native_contact_recovery', 0)):.1%}")
-    cols[3].metric("Molecular weight", f"{float(descriptors.get('molecular_weight', 0)):.2f}")
-    st.caption(
-        "Vina scores are computational ranking outputs, not measured binding affinities. "
-        "The complete result retains the frozen protocol, per-seed evidence and warnings."
-    )
-    st.download_button(
-        "Download complete live result (JSON)",
-        data=json.dumps(result, indent=2),
-        file_name=f"{result.get('job_id', 'p2x4-job')}-result.json",
-        mime="application/json",
-        key=f"live-result-{result.get('job_id', 'job')}",
-    )
-
+st.subheader('Your session results')
+st.caption('One compound runs at a time across the shared app. ADMET and ProLIF are not included in this experimental edition. The existing researcher accounts and registry remain on the original platform.')
+if st.button('Stop my waiting compounds'):
+    worker.cancel_waiting(owner)
 
 @st.fragment(run_every=5)
-def live_job_panel() -> None:
-    job_id = st.session_state.get("live_job_id")
-    if not job_id:
-        return
-    api = configured_api()
-    if api is None:
-        st.error("The live docking connection is no longer configured.")
-        return
-    try:
-        status = api.job_status(str(job_id))
-    except P2X4APIError as exc:
-        st.error(str(exc))
-        return
-    state = str(status.get("status", "unknown"))
-    percent = max(0, min(100, int(status.get("progress_percent") or (100 if state == "complete" else 4))))
-    st.progress(percent / 100, text=f"{percent}% · {status.get('step', state)}")
-    st.caption(f"Job `{job_id}` · {state}")
-    if state == "complete":
-        try:
-            render_live_result(api.job_result(str(job_id)))
-        except P2X4APIError as exc:
-            st.error(str(exc))
-    elif state == "failed":
-        st.error(str(status.get("error") or "The docking worker reported a failure."))
-    else:
-        st.info("The persistent worker owns this calculation. You may close this page and return later with the job ID.")
-
-
-data = load_data()
-records: list[dict[str, object]] = data["records"]  # type: ignore[assignment]
-protocol: dict[str, object] = data["protocol"]  # type: ignore[assignment]
-
-st.markdown(
-    """
-    <section class="hero">
-      <small>HUMAN P2X4 · AUDITABLE COMPUTATIONAL EVIDENCE</small>
-      <h1>Explore frozen evidence or submit a controlled live job.</h1>
-      <p>Search the completed SNP-library campaign by compound code, name or SMILES.
-      Streamlit does not run AutoDock Vina; when enabled, it securely submits one
-      protocol-locked job to the persistent docking worker.</p>
-    </section>
-    """,
-    unsafe_allow_html=True,
-)
-st.markdown(
-    f'<div class="notice"><strong>Interpretation boundary.</strong> {data["interpretation_boundary"]}</div>',
-    unsafe_allow_html=True,
-)
-
-with st.sidebar:
-    st.subheader("Frozen protocol")
-    st.write(f"**Target:** {protocol['target']}")
-    st.write(f"**Structure:** {protocol['structure']}")
-    st.write(f"**Site:** {protocol['site']}")
-    st.write(f"**Vina:** {protocol['vina_version']}")
-    st.write(f"**Seed:** `{protocol['seed']}`")
-    st.write(f"**Exhaustiveness:** {protocol['exhaustiveness']}")
-    st.divider()
-    st.caption("The free interface retains no docking files. Live jobs, when enabled, are owned and stored by the external backend.")
-
-metric_cols = st.columns(4)
-metric_cols[0].metric("Frozen structures", len(records))
-metric_cols[1].metric("Redocking complete", protocol["completed"])
-metric_cols[2].metric("Exact score matches", protocol["exact_score_matches"])
-metric_cols[3].metric("Score drift", "0.000 kcal/mol")
-
-st.subheader("Live docking pilot")
-api = configured_api()
-if api is None:
-    st.info(
-        "Live docking is not configured on this deployment. The frozen 223-compound explorer below remains fully available."
-    )
-else:
-    try:
-        bridge = api.health()
-        if bridge.get("status") != "ok":
-            st.warning("The docking backend is reachable but reports degraded dependencies.")
-        elif not bridge.get("submissions_enabled"):
-            st.warning("The docking backend is online, but the administrator has not enabled public pilot submissions.")
-        else:
-            st.success(
-                f"Docking worker online · {bridge.get('inflight_jobs', 0)}/{bridge.get('inflight_limit', 25)} queued or running"
-            )
-            with st.form("live-docking-submission", clear_on_submit=False):
-                live_id = st.text_input("Compound code", placeholder="Example: PILOT-001")
-                live_smiles = st.text_area("Isomeric SMILES", placeholder="Paste one compound only")
-                intentional_replicate = st.checkbox(
-                    "I reviewed any exact-structure match and intend to create a computational replicate"
-                )
-                live_submit = st.form_submit_button(
-                    "Submit protocol-locked docking job", type="primary", use_container_width=True
-                )
-            st.caption(
-                "Locked settings: confirmation workflow, pH 6.8–8.0, up to 8 microspecies, frozen seeds, one active worker. "
-                "Do not submit confidential or unpublished structures to this shared pilot."
-            )
-            if live_submit:
-                if not live_id.strip():
-                    st.error("Enter a compound code.")
-                elif canonicalize(live_smiles) is None:
-                    st.error("Enter one valid SMILES structure.")
-                else:
-                    try:
-                        accepted = api.submit_job(live_id.strip(), live_smiles.strip(), intentional_replicate)
-                        st.session_state["live_job_id"] = accepted["job_id"]
-                        st.success(f"Queued `{accepted['job_id']}`.")
-                    except P2X4APIError as exc:
-                        st.error(str(exc))
-    except (P2X4APIError, ValueError) as exc:
-        st.warning(f"Live docking is temporarily unavailable. Frozen evidence remains accessible. {exc}")
-
-if st.session_state.get("live_job_id"):
-    with st.expander("Current live job", expanded=True):
-        live_job_panel()
-
-st.subheader("Search a precomputed compound")
-example_options = ["", *[f"{r['compound_id']} · {r['compound_name']}" for r in records[:12]]]
-example = st.selectbox("Load an example", example_options, help="Examples are drawn from the frozen library.")
-default_query = example.split(" · ", 1)[0] if example else ""
-with st.form("lookup", clear_on_submit=False):
-    query = st.text_input(
-        "Compound code, name or isomeric SMILES",
-        value=default_query,
-        placeholder="Example: SNP00001 or paste a SMILES",
-    )
-    submitted = st.form_submit_button("Retrieve precomputed evidence", type="primary", use_container_width=True)
-
-if submitted and query.strip():
-    raw = query.strip()
-    canonical = canonicalize(raw)
-    lowered = raw.casefold()
-    matches = [
-        row for row in records
-        if lowered == str(row["compound_id"]).casefold()
-        or lowered in str(row["compound_name"]).casefold()
-        or lowered in {str(alias).casefold() for alias in row.get("aliases", [])}
-        or (canonical is not None and canonical == row["canonical_smiles"])
-    ]
-
-    if not matches:
-        if canonical is None and not lowered.startswith("snp"):
-            st.error("The entry is neither a valid SMILES nor a recognized library identifier.")
-        else:
-            st.warning(
-                "No exact standardized-structure match exists in the frozen demonstration library. "
-                "No score has been estimated and no docking job has been started."
-            )
-    else:
-        st.success(f"Found {len(matches)} auditable precomputed record(s).")
-        for row in matches:
-            st.markdown('<div class="match">', unsafe_allow_html=True)
-            left, right = st.columns([1, 1.35], gap="large")
-            with left:
-                st.image(molecule_image(str(row["smiles"])), use_container_width=True)
-            with right:
-                st.caption(str(row["compound_id"]))
-                st.markdown(f"### {row['compound_name']}")
-                st.write(f"**Class:** {row['compound_class']}")
-                st.write(f"**Formula:** {row['formula']}")
-                st.write(f"**Molecular weight:** {row['molecular_weight']:.3f} g/mol")
-                st.code(str(row["smiles"]), language=None)
-                score_cols = st.columns(3)
-                score_cols[0].metric("Original Vina", f"{row['original_vina_kcal_mol']:.3f}")
-                score_cols[1].metric("Redocked Vina", f"{row['redocked_vina_kcal_mol']:.3f}")
-                score_cols[2].metric("Difference", f"{row['score_delta_kcal_mol']:.3f}")
-                st.caption("Units: kcal/mol. More negative Vina scores are ranking outputs, not measured affinities.")
-                if row.get("aliases"):
-                    st.write("**Recorded aliases:** " + ", ".join(row["aliases"]))
-            st.download_button(
-                "Download this frozen record (JSON)",
-                data=json.dumps(row, indent=2),
-                file_name=f"{row['compound_id']}_precomputed_result.json",
-                mime="application/json",
-                key=f"download-{row['compound_id']}",
-            )
-            st.markdown("</div>", unsafe_allow_html=True)
-
-st.divider()
-st.subheader("Browse the frozen library")
-class_options = sorted({str(row["compound_class"]) for row in records})
-selected_classes = st.multiselect("Compound classes", class_options)
-filtered = [row for row in records if not selected_classes or row["compound_class"] in selected_classes]
-display_rows = [
-    {
-        "Code": row["compound_id"],
-        "Compound": row["compound_name"],
-        "Class": row["compound_class"],
-        "Formula": row["formula"],
-        "MW": row["molecular_weight"],
-        "Original Vina": row["original_vina_kcal_mol"],
-        "Redocked Vina": row["redocked_vina_kcal_mol"],
-        "Exact match": row["exact_score_match"],
-    }
-    for row in filtered
-]
-st.dataframe(display_rows, use_container_width=True, hide_index=True)
-st.download_button(
-    "Download filtered publication table (CSV)",
-    data=records_to_csv(filtered),
-    file_name="p2x4_snp_precomputed_demo.csv",
-    mime="text/csv",
-)
-
-with st.expander("Methods and provenance"):
-    st.markdown(
-        """
-        - Source: frozen SNP-library redocking reproducibility campaign v2.
-        - Prepared ligand PDBQT files were reused without re-protonation, tautomerization or conformer rebuilding.
-        - Receptor, grid, ligand hashes, seed, exhaustiveness and retained modes were locked before redocking.
-        - All 223 structures reproduced the original Vina score exactly under unchanged deterministic inputs.
-        - The demonstration contains no experimental activity labels and must not be used as clinical evidence.
-        """
-    )
-
-st.markdown(
-    '<div class="footer-note">P2X4 Dock · Precomputed demonstration edition · '
-    'Computational hypotheses require experimental confirmation.</div>',
-    unsafe_allow_html=True,
-)
-
+def results():
+    for job in worker.owned(owner):
+        with st.expander(f"{job['compound_id']} · {job['compound_name']} · {job['state']}", expanded=job['state'] == 'running'):
+            path = worker.root / job['job_id']
+            if job['state'] == 'running':
+                try:
+                    progress = json.loads((path / 'status.json').read_text())
+                    st.progress(min(100, int(progress.get('progress_percent', 0))), text=progress.get('detail', progress.get('step', 'Running')))
+                except (OSError, ValueError):
+                    st.write('Preparing calculation…')
+            if job.get('error'):
+                st.error(job['error'])
+            if job['state'] == 'complete':
+                result = json.loads((path / 'result.json').read_text())
+                st.image(Draw.MolToImage(Chem.MolFromSmiles(job['smiles']), size=(450, 250)))
+                st.metric('Median Vina score (kcal/mol)', result['summary']['median_vina_score_kcal_mol'])
+                st.json(result['summary'], expanded=False)
+            if job['state'] in ('complete', 'failed'):
+                st.download_button('Download result and evidence ZIP', worker.download(owner, job['job_id']), f"{job['job_id']}.zip", key=job['job_id'])
+results()

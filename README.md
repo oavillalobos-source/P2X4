@@ -1,56 +1,32 @@
-# P2X4 Dock — Streamlit demonstration edition
+# P2X4 Dock: experimental live Streamlit edition
 
-This is a read-only, free-hosting-compatible demonstration of the frozen
-223-compound SNP-library reproducibility campaign. It accepts a compound code,
-name or SMILES and returns an exact match only when that standardized structure
-already exists in the bundled precomputed dataset.
+This edition executes AutoDock Vina within the Streamlit host. Deploy the
+allowlisted bundle produced by scripts/53_package_streamlit_live.py, using
+streamlit_app.py as the entrypoint and Python 3.12. No external API is required.
 
-It deliberately does **not** run AutoDock Vina, estimate a score for an unseen
-SMILES, predict biological activity, or retain user uploads.
+The same receptor, grid, five seeds, exhaustiveness 16 and microspecies policy
+are retained. Execution is serialized at one CPU per Vina process. Linux output
+is a new run and need not reproduce the exact numerical scores from macOS.
 
-## Optional live docking bridge
+Each submission has 1–25 compounds, and the entire shared queue is capped at 25
+waiting/running jobs. A job is stopped after two hours; partial output is marked
+failed. The pilot rejects structures above 100 heavy atoms. No reduced protocol
+is silently substituted for compounds that exceed hosting resources.
 
-The Streamlit process never executes Vina. When a separately hosted P2X4
-backend is configured, the interface can submit one atomic job, poll its
-checkpointed status, and retrieve its completed JSON result. The backend keeps
-PostgreSQL, the worker and all generated files outside Community Cloud.
+Storage and session access are temporary. Download the evidence ZIP when each
+job completes. A refresh, hosting restart or cache reset can lose access or
+remove results. There is no durable checkpoint restore in this edition.
 
-Configure the backend with the matching values documented in
-`deployment/.env.example`, then add these values in the Streamlit Community
-Cloud Secrets editor:
+Researcher accounts, persistent registries, administrator batch controls, ADMET
+and ProLIF remain features of the original platform. This experimental edition
+uses random session identifiers and does not list another session's compounds.
+It is intended for nonconfidential testing.
 
-```toml
-P2X4_API_URL = "https://YOUR-DOCKING-API"
-P2X4_API_TOKEN = "A-LONG-RANDOM-SHARED-BRIDGE-TOKEN"
-```
+Do not upload the original jobs directory, account database, tokens or private
+validation truth to the deployment repository. The package builder includes
+only source code and fixed reference inputs.
 
-The backend service account identified by `P2X4_STREAMLIT_OWNER_EMAIL` must
-already exist and be verified. Keep `P2X4_STREAMLIT_SUBMISSIONS_ENABLED=0`
-until a known reference-compound acceptance test passes. This pilot bridge is
-shared and must not be used for confidential structures or unrestricted public
-submissions.
-
-## Refresh the frozen dataset
-
-From the project root, using the validated project environment:
-
-```bash
-environment/.venv/bin/python streamlit_demo/prepare_demo_data.py
-```
-
-## Run locally
-
-```bash
-python -m venv streamlit_demo/.venv
-streamlit_demo/.venv/bin/pip install -r streamlit_demo/requirements.txt
-streamlit_demo/.venv/bin/streamlit run streamlit_demo/streamlit_app.py
-```
-
-## Deploy to Streamlit Community Cloud
-
-Place `streamlit_demo/` in a GitHub repository, connect that repository at
-`share.streamlit.io`, and choose `streamlit_demo/streamlit_app.py` as the entry
-point. No secrets are required. The app may sleep when inactive and generated
-files are not durable, but this edition depends only on its versioned read-only
-JSON dataset.
-
+After deployment, confirm the app builds on Linux and complete a reference
+compound before distributing the live docking link. Community Cloud can sleep,
+restart or throttle computation. Completing the deployment does not validate
+the biological activity model, which remains development only.

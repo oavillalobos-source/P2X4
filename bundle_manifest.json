@@ -1,0 +1,19 @@
+{
+  "vina_source": "https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/v1.2.7/vina_1.2.7_linux_x86_64",
+  "files": {
+    "scripts/21_run_single_compound.py": "dd9d38c01078273ebe4ef3f0dce676512d41ed6cc9cd26316168a03f6727e326",
+    "scripts/p2x4_microspecies.py": "288eed13124f1fb94256800ed93c230eeb21f27cddc70529bc1cf366569ed1b1",
+    "01_receptor/prepared/P2X4_9BQI_BAY_site.pdbqt": "8d192a7d839b83a3daa1a34aa2d9b302a46abc573d56a3f73cf4cfa5fc4df6d2",
+    "01_receptor/prepared/P2X4_9BQI_BAY_site.box.txt": "8cc0bcca698e7aba47743aae56af5533266decf5bdc655a174b2f893dfa0df21",
+    "01_receptor/clean/P2X4_9BQI_trimer_protein.pdb": "387c3d0ad65eaaa5845f31054ec8dcc472cb36e7eb5e5c4887fef2fe40c27912",
+    "00_reference/native_ligand/BAY-1797_9BQI_chainA_bound.sdf": "95b21375f343998368c71ac6d7e07f317bd07bfc15d70fa8270b393d70c26226",
+    "05_analysis/microspecies_calibration/P2X4_microspecies_rule.json": "0bc868d454be28b61ba781edee05cc076d2fe37e09d07e3503adf89c62f8a633",
+    "requirements.txt": "7e576ca0e72322edbf2661d06f58b9adb4ef5b4427a4eee239c8be6564097146",
+    "streamlit_app.py": "c9d0e54f47eeb4c3b4c1202d104e20b8a3274a25e64778a896af1386ade1caf7",
+    "README.md": "7008538b5d96cbddd3028bed15ceab33ea43406ef0e4d8569bcaf03da6d4390e",
+    "engine.py": "42b1c4e10f0e90f2f4885f4b5f85d00a3e82ee6cd9a75a856534268e64206394",
+    "launch.py": "b58726a5f2fc4229030114b97d8e5b64640fc4dd341c0bd846f0aa4a232dc024",
+    "packages.txt": "8333b51e99e0d0e944fe9f429b97d5723a4765668395ba35ae6d0f1952bac7ff",
+    "bin/vina": "f31f774f723bba7bbe6e9d1c47577020eea9a8da16424284c043d22593570644"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "schema_version": "1.0",
+  "status": "control_calibrated_not_predictively_validated",
+  "priority_state_definition": "Highest RDKit tautomer score within each Dimorphite-DL protomer; ties retained.",
+  "minimum_priority_robust_state_fraction": 0.5,
+  "minimum_max_priority_contact_recovery": 0.6666666666666666,
+  "maximum_median_priority_vina_kcal_mol": null,
+  "known_positive_count": 1,
+  "known_inactive_count": 2
+}
