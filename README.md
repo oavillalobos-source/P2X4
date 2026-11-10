@@ -59,3 +59,17 @@ After deployment, confirm the app builds on Linux and complete a reference
 compound before distributing the live docking link. Community Cloud can sleep,
 restart or throttle computation. Completing the deployment does not validate
 the biological activity model, which remains development only.
+
+## Optional Supabase cloud storage (no original backend needed)
+
+Set `P2X4_SUPABASE_URL` and `P2X4_SUPABASE_PUBLISHABLE_KEY` to enable per-user
+Supabase sign-in, private registry records and private result ZIPs while keeping
+experimental docking on Streamlit. Install the provided Supabase schema and
+complete access-isolation tests first. The app rejects service-role keys. Do
+not configure this alongside `P2X4_BACKEND_URL`.
+
+Save failures remain visible; a completed docking run is not automatically a
+successful cloud archive. Interrupted jobs do not resume from checkpoints.
+Public signup/recovery stays disabled until SMTP and email templates are set
+up and tested. See `deployment/supabase/README.md` in the full local project.
+The earlier session-only limitations apply when neither storage mode is set.

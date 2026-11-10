@@ -15,12 +15,25 @@ st.set_page_config(page_title='P2X4 Dock · Research workspace', page_icon='🧬
 st.markdown((ROOT / 'workspace.css').read_text(), unsafe_allow_html=True)
 st.markdown('''<div class="workspace-brand"><div class="brand-box">P2<br>X4</div><div><strong>P2X4 Dock</strong><small>9BQI · BAY-1797 allosteric site</small></div><span class="session-badge">Research workspace</span></div>''', unsafe_allow_html=True)
 
+def setting(name, default=''):
+    try:
+        value = st.secrets.get(name, default)
+    except FileNotFoundError:
+        value = default
+    return os.environ.get(name, value)
+
+cloud_url = setting('P2X4_SUPABASE_URL')
+cloud_key = setting('P2X4_SUPABASE_PUBLISHABLE_KEY')
+cloud_mode = bool(cloud_url or cloud_key)
+
 # Credentials stay in a per-browser session; no shared service-owner identity.
 try:
     backend_url = st.secrets.get('P2X4_BACKEND_URL', '')
 except FileNotFoundError:
     backend_url = ''
 backend_url = backend_url or os.environ.get('P2X4_BACKEND_URL', '')
+if backend_url and cloud_mode:
+    st.error('Configure either Supabase storage or the original backend, not both.'); st.stop()
 if backend_url:
     from backend_workspace import render
     from backend_client import BackendError
@@ -35,10 +48,35 @@ if backend_url:
 def engine():
     return Engine()
 
-if 'owner' not in st.session_state:
-    st.session_state.owner = uuid.uuid4().hex
-owner = st.session_state.owner
-worker = engine()
+if cloud_mode:
+    from cloud_workspace import CloudEngine, sign_in
+    from supabase_client import CloudError
+    try:
+        if not cloud_url or not cloud_key:
+            raise CloudError('Both the Supabase project URL and publishable key must be configured.')
+        client = sign_in(cloud_url, cloud_key,
+            str(setting('P2X4_SUPABASE_SIGNUP_ENABLED', False)).lower() == 'true')
+        owner = client.user['id']
+        shared_worker = engine()
+        if ('_cloud_worker' not in st.session_state
+                or st.session_state._cloud_worker.engine is not shared_worker):
+            st.session_state._cloud_worker = CloudEngine(shared_worker, client)
+        worker = st.session_state._cloud_worker
+    except (CloudError, ValueError) as exc:
+        st.error(str(exc)); st.stop()
+else:
+    if 'owner' not in st.session_state:
+        st.session_state.owner = uuid.uuid4().hex
+    owner = st.session_state.owner
+    worker = engine()
+
+def owned_jobs():
+    try:
+        return worker.owned(owner)
+    except ValueError as exc:
+        st.error(str(exc))
+        st.caption('Private cloud storage is unavailable. No fallback to anonymous temporary storage.')
+        st.stop()
 
 def navigate(page, job_id=None):
     st.session_state.nav = page
@@ -47,7 +85,10 @@ def navigate(page, job_id=None):
 
 pages = ['Test a compound', 'Compound registry', 'More about the target receptor', 'Compound results', 'Compare compounds']
 page = st.radio('Workspace navigation', pages, horizontal=True, key='nav', label_visibility='collapsed')
-st.caption('Temporary session: download results before leaving. Restarting the app or refreshing your session can lose jobs and access. No account sign-in is required.')
+if cloud_mode:
+    st.caption('Private cloud registry · Evidence is durable only after “Cloud archive saved” appears. Docking and waiting jobs can be interrupted by host restarts; keep independent downloads.')
+else:
+    st.caption('Temporary session: download results before leaving. Restarting the app or refreshing your session can lose jobs and access. No account sign-in is required.')
 
 help_text = {
     pages[0]: 'Enter a compound code, its supplied name and isomeric SMILES. Inspect the structure, then run the fixed five-seed protocol. For a batch, upload the provided CSV template (up to 25 rows). Recent jobs link to a separate results view.',
@@ -57,7 +98,7 @@ help_text = {
     pages[4]: 'Select two to four completed jobs for side-by-side inspection. Compare structures, pose evidence and protocol settings; raw docking scores do not provide calibrated affinity across different scaffolds.'
 }
 with st.popover('ⓘ  Help for this page'):
-    st.write(help_text[page])
+    st.write(help_text[page] if not cloud_mode else help_text[page].replace('this browser session', 'your private cloud registry').replace('this session', 'your account').replace('Download the session table and result ZIPs before leaving.', 'Download the registry table and result ZIPs for an independent backup.'))
 
 def hero(kicker, title, description):
     st.markdown(f'<p class="eyebrow">{kicker}</p>', unsafe_allow_html=True)
@@ -84,6 +125,8 @@ def validate(rows):
 def read_result(job):
     if job['state'] != 'complete':
         return None
+    if cloud_mode:
+        return worker.result(job)
     try:
         return json.loads((worker.root / job['job_id'] / 'result.json').read_text())
     except (OSError, ValueError):
@@ -116,10 +159,17 @@ def progress(job):
         st.info('Queued · another compound may be running in the shared queue.')
     if job.get('error'):
         st.error(job['error'])
+    if cloud_mode:
+        if job.get('sync_error'):
+            st.warning('Cloud save incomplete: ' + job['sync_error'])
+        elif job.get('archive_sha256'):
+            st.caption('Cloud archive saved · SHA-256 verified on download')
+        elif job['state'] in ('complete', 'failed'):
+            st.caption('Cloud evidence archive not yet confirmed. Keep a local download.')
 
 @st.fragment(run_every=5)
 def recent_jobs():
-    jobs = worker.owned(owner)
+    jobs = owned_jobs()
     with st.expander(f'Recent jobs · {len(jobs)}', expanded=any(j['state'] in ('running', 'queued') for j in jobs)):
         if not jobs:
             st.caption('Your submitted compounds will appear here.')
@@ -207,18 +257,18 @@ if page == 'Test a compound':
     recent_jobs()
 
 elif page == 'Compound registry':
-    hero('In-silico P2X4 portfolio', 'Compound registry.', 'Search this session’s compounds, open their evidence and compare completed calculations.')
+    hero('In-silico P2X4 portfolio', 'Compound registry.', 'Search your private compounds, open their evidence and compare completed calculations.' if cloud_mode else 'Search this session’s compounds, open their evidence and compare completed calculations.')
     @st.fragment(run_every=5)
     def registry():
-        jobs = worker.owned(owner)
+        jobs = owned_jobs()
         cols = st.columns(3)
-        for col, label, count in zip(cols, ['Session compounds', 'Completed', 'Waiting / running'], [len(jobs), sum(j['state']=='complete' for j in jobs), sum(j['state'] in ('queued','running') for j in jobs)]):
+        for col, label, count in zip(cols, ['Your compounds', 'Completed', 'Waiting / running'], [len(jobs), sum(j['state']=='complete' for j in jobs), sum(j['state'] in ('queued','running') for j in jobs)]):
             col.metric(label, count)
         search = st.text_input('Search code, supplied name or SMILES').lower().strip()
-        status = st.selectbox('Status', ['All', 'complete', 'running', 'queued', 'failed', 'cancelled'])
+        status = st.selectbox('Status', ['All', 'complete', 'running', 'queued', 'failed', 'cancelled', 'interrupted'])
         filtered = [j for j in jobs if (status == 'All' or j['state']==status) and search in ' '.join([j['compound_id'], j['compound_name'], j['smiles']]).lower()]
         if not jobs:
-            st.info('No compounds in this session yet. Submit a structure in Test a compound.')
+            st.info('No compounds yet. Submit a structure in Test a compound.')
         if filtered:
             st.dataframe([table_row(j) for j in filtered], hide_index=True, use_container_width=True)
             chosen = st.selectbox('Open a compound', [j['job_id'] for j in filtered], format_func=lambda jid: next(f"{j['compound_id']} · {j['compound_name']} · {j['state']}" for j in filtered if j['job_id']==jid))
@@ -227,14 +277,14 @@ elif page == 'Compound registry':
             st.download_button('Export registry CSV', csv_bytes([table_row(j) for j in filtered]), 'p2x4-session-registry.csv')
         if st.button('Compare completed compounds', on_click=navigate, args=('Compare compounds',)):
             st.rerun()
-        st.caption('Session records only. This view does not import private records from the original platform or automatically resolve duplicate identities.')
+        st.caption('Private Supabase records. Existing laptop accounts and jobs have not been migrated.' if cloud_mode else 'Session records only. This view does not import private records from the original platform or automatically resolve duplicate identities.')
     registry()
 
 elif page == 'Compound results':
     hero('Traceable computational evidence', 'Compound result.', 'Review one calculation in a dedicated workspace.')
     @st.fragment(run_every=5)
     def detail():
-        jobs = worker.owned(owner)
+        jobs = owned_jobs()
         if not jobs:
             st.info('Submit a compound to create a result.'); return
         ids = [j['job_id'] for j in jobs]
@@ -286,12 +336,25 @@ elif page == 'Compound results':
                 st.download_button('Download per-seed CSV', csv_bytes(result.get('per_seed', [])), f'{selected}-seeds.csv')
                 st.caption('The complete ZIP below includes prepared structures, docked poses, logs and the methods report.')
         if job['state'] in ('complete', 'failed'):
-            st.download_button('Download complete evidence ZIP', worker.download(owner, selected), f'{selected}.zip', type='primary')
+            if cloud_mode and not job.get('archive_sha256'):
+                if st.button('Retry cloud save', key='retry-save-' + selected):
+                    try:
+                        worker.retry_save(owner, selected)
+                        st.success('Cloud save completed.')
+                    except ValueError as exc:
+                        st.error(str(exc))
+            # Prepare explicitly to avoid fetching private archives every five seconds.
+            if st.button('Prepare evidence ZIP download', key='prepare-' + selected):
+                try:
+                    data = worker.download(owner, selected)
+                    st.download_button('Download evidence ZIP', data, f'{selected}.zip', type='primary')
+                except (ValueError, PermissionError) as exc:
+                    st.error(str(exc))
     detail()
 
 elif page == 'Compare compounds':
     hero('Side-by-side evidence', 'Compare compounds.', 'Review up to four completed calculations without treating docking scores as measured affinities.')
-    jobs = [j for j in worker.owned(owner) if read_result(j)]
+    jobs = [j for j in owned_jobs() if read_result(j)]
     if len(jobs) < 2:
         st.info('Complete at least two compounds in this session to compare them.')
     else:
@@ -331,4 +394,4 @@ else:
         st.markdown('[RCSB PDB 9BQI](https://www.rcsb.org/structure/9BQI) · [Primary structural study](https://pubmed.ncbi.nlm.nih.gov/39823330/) · [IUPHAR P2X family review](https://pubmed.ncbi.nlm.nih.gov/33125712/)')
 
 st.divider()
-st.caption('P2X4 Dock · Experimental live edition | Session storage only | Researcher accounts, permanent registry and administrator controls remain on the original platform.')
+st.caption('P2X4 Dock · Experimental live edition | Private Supabase accounts and saved evidence | ADMET, ProLIF and administration are not enabled in this edition.' if cloud_mode else 'P2X4 Dock · Experimental live edition | Session storage only | Researcher accounts, permanent registry and administrator controls remain on the original platform.')
