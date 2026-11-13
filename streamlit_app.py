@@ -227,6 +227,10 @@ if page == 'Administration':
         state = shared_worker.admin_queue(client)
         st.write('Queue dispatch: ' + ('Paused' if state['paused'] else 'Active'))
         st.json(state['counts'])
+        with shared_worker.lock:
+            admet_counts = {s: sum(t['state'] == s for t in getattr(shared_worker, '_admet_tasks', {}).values()) for s in ('queued', 'running', 'complete', 'failed')}
+        st.write('ADMET follow-up queue')
+        st.json(admet_counts)
         st.caption('Controls apply to this live worker only and reset after a host restart. Pausing holds waiting jobs; it does not interrupt running calculations or change docking settings.')
         if st.button('Resume queue' if state['paused'] else 'Pause queue'):
             shared_worker.admin_queue(client, paused=not state['paused'])
@@ -385,7 +389,7 @@ elif page == 'Compound results':
                         temporary = path.with_suffix('.admet.tmp')
                         temporary.write_text(json.dumps(updated, indent=2))
                         temporary.replace(path)
-                render_admet(job, result, save_admet)
+                render_admet(job, result, save_admet, shared_worker if cloud_mode else worker, owner)
             with exports:
                 st.download_button('Download result JSON', json.dumps(result, indent=2), f'{selected}-result.json', mime='application/json')
                 st.download_button('Download per-seed CSV', csv_bytes(result.get('per_seed', [])), f'{selected}-seeds.csv')
@@ -453,4 +457,4 @@ else:
         st.markdown('[RCSB PDB 9BQI](https://www.rcsb.org/structure/9BQI) · [Primary structural study](https://pubmed.ncbi.nlm.nih.gov/39823330/) · [IUPHAR P2X family review](https://pubmed.ncbi.nlm.nih.gov/33125712/)')
 
 st.divider()
-st.caption('P2X4 Dock · Experimental live edition | Private Supabase accounts and saved evidence | Role-protected queue administration | ADMET report import available · ProLIF is not enabled in this edition.' if cloud_mode else 'P2X4 Dock · Experimental live edition | Session storage only | Researcher accounts, permanent registry and administrator controls remain on the original platform.')
+st.caption('P2X4 Dock · Experimental live edition | Private Supabase accounts and saved evidence | Role-protected queue administration | Optional ADMET-AI inference available · ProLIF is not enabled in this edition.' if cloud_mode else 'P2X4 Dock · Experimental live edition | Session storage only | Researcher accounts, permanent registry and administrator controls remain on the original platform.')

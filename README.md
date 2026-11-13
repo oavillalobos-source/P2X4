@@ -73,3 +73,19 @@ successful cloud archive. Interrupted jobs do not resume from checkpoints.
 Public signup/recovery stays disabled until SMTP and email templates are set
 up and tested. See `deployment/supabase/README.md` in the full local project.
 The earlier session-only limitations apply when neither storage mode is set.
+
+
+### Optional ADMET-AI follow-up
+Completed compounds have a Run ADMET & Toxicity button. Requests share the
+single docking executor, honor queue pause, and never run automatically for a
+batch. ADMET-AI 2.0.1 / Chemprop 2.3.1 uses CPU inference in a subprocess with a
+10-minute timeout. The model is released from memory when that process exits.
+Reports contain 41 supported ADMET endpoints, model file SHA-256 hashes,
+software versions, source and timestamp. Probabilities are not confidence
+estimates; unavailable per-compound uncertainty is explicitly missing.
+Results save to the private result JSON; separate JSON/CSV downloads include
+ADMET evidence. Existing archived docking ZIPs are not automatically replaced.
+If cloud save fails (including sign-out), the worker retains the report for
+download/retry while that worker survives. Host restart loses unsaved reports.
+A local macOS reference test peaked at 574 MB RSS; this is not a Linux cloud
+resource guarantee. Free-host interruption or memory failure remains possible.

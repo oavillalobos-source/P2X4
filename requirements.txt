@@ -6,3 +6,9 @@ numpy==2.5.4
 scipy==1.18.1
 gemmi==0.7.5
 requests>=2.32,<3
+
+# CPU-only inference dependencies; models run in an isolated subprocess.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.15.0+cpu; sys_platform == "linux"
+admet-ai==2.0.1
+chemprop==2.3.1

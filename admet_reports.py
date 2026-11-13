@@ -53,22 +53,51 @@ def validate_report(raw, smiles):
             raise ValueError(f'{name}: confidence requires value and method, or null when unavailable.')
         if confidence is not None and isinstance(confidence['value'],(int,float)) and not math.isfinite(confidence['value']):
             raise ValueError('Confidence must be finite.')
-        clean[name] = {k:row.get(k) for k in ('label','prediction','units','task_type','confidence','reference_url')}
+        clean[name] = {k:row.get(k) for k in ('label','prediction','units','task_type','confidence','reference_url','category')}
     return {'schema_version':'p2x4-external-admet-1', 'evidence_type':'researcher-imported prediction; not independently verified',
             'model':report['model'], 'model_version':report['model_version'], 'generated_at':report['generated_at'],
             'source':report['source'], 'input_smiles':report['input_smiles'], 'endpoints':clean,
             'imported_at':datetime.now(timezone.utc).isoformat(), 'limitations':report.get('limitations','Provider applicability domain and uncertainty must be checked against the original report.')}
 
 def rows(report):
-    return [dict(endpoint=k, prediction=v['prediction'], units=v['units'],
+    return [dict(endpoint=k, category=v.get('category','Not supplied'), prediction=v['prediction'], units=v['units'],
         confidence=v['confidence']['value'] if v.get('confidence') else 'Not supplied',
         confidence_method=v['confidence']['method'] if v.get('confidence') else 'Not supplied',
         provider=report['model'], model_version=report['model_version'], generated_at=report['generated_at'], source=report['source']) for k,v in report['endpoints'].items()]
 
-def render(job, result, save):
+def render(job, result, save, engine=None, owner=None):
     import streamlit as st
     st.subheader('ADMET & Toxicity')
-    st.write('Optional follow-up for this completed compound. Import an external prediction report; no ADMET model runs automatically here.')
+    st.write('Run ADMET-AI for this selected compound, or import an external report. Batch docking does not automatically trigger profiling.')
+    if engine is not None:
+        from admet_tasks import submit, get_task
+        task = get_task(engine, owner, job['job_id'])
+        busy = bool(task and task['state'] in ('queued','running'))
+        if st.button('Run ADMET & Toxicity', key='admet-run-'+job['job_id'], disabled=busy):
+            try:
+                submit(engine, owner, job, save)
+                task = get_task(engine, owner, job['job_id'])
+            except ValueError as exc:
+                st.error(str(exc))
+        if task:
+            if task['state'] in ('queued','running'):
+                st.info('ADMET: ' + task['state'] + '. Shares the docking queue; this view refreshes automatically.')
+            elif task['state'] == 'failed':
+                st.error(task['error'])
+            elif task.get('report'):
+                result = dict(result, admet_report=task['report'])
+                if task.get('save_error'):
+                    st.warning(task['save_error'])
+                    if st.button('Retry saving ADMET report',key='admet-retry-'+job['job_id']):
+                        try:
+                            save(task['report'])
+                            with engine.lock:
+                                engine._admet_tasks[(owner,job['job_id'])].pop('save_error',None)
+                            st.success('Report saved.')
+                        except (ValueError,OSError) as exc:
+                            st.error(str(exc))
+                else:
+                    st.success('ADMET inference completed and report saved.')
     st.caption('Supports the original platform’s ADMET-AI JSON or the template below. For ProTox or other providers, transcribe the original report into the template and retain its provenance. Structures are checked exactly; provider authenticity is not independently verified.')
     template = {'input_smiles':job['smiles'], 'model':'REPLACE with provider/model', 'model_version':'REPLACE with actual version',
         'generated_at':'REPLACE with ISO date', 'source':'REPLACE with original report URL or identifier',
@@ -88,10 +117,14 @@ def render(job, result, save):
             st.error(str(exc))
     report = result.get('admet_report')
     if report:
-        st.markdown('**Saved external prediction report**')
+        st.markdown('**ADMET prediction report**')
         st.write('Provider/model:',report['model'],'· Version:',report['model_version'])
         st.write('Prediction date:',report['generated_at'])
         st.write('Source:',report['source'])
+        if report.get('model') == 'ADMET-AI':
+            st.markdown('[ADMET-AI method paper](https://doi.org/10.1093/bioinformatics/btae416) · [Model software](https://github.com/swansonk14/admet_ai)')
+        with st.expander('Model and execution provenance'):
+            st.json({k:report.get(k) for k in ('model_generation','software_versions','model_files_sha256','execution') if k in report})
         st.caption(report['evidence_type'])
         st.dataframe(rows(report),hide_index=True)
         st.write(report['limitations'])

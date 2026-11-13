@@ -7,7 +7,7 @@ def ensure_admin_worker(worker):
     with worker.lock:
         if callable(getattr(worker, 'admin_queue', None)) and hasattr(worker, 'dispatch'):
             return worker
-        if any(job['state'] in ('queued', 'running') for job in worker.jobs.values()):
+        if any(job['state'] in ('queued', 'running') for job in worker.jobs.values()) or any(task['state'] in ('queued','running') for task in getattr(worker,'_admet_tasks',{}).values()):
             raise RuntimeError('Queue controls are waiting for a worker update. Existing queued and running jobs will continue. Reopen Administration after they finish; do not restart the app while calculations are active.')
         # Streamlit can retain instances of the previous class after a code update.
         # Only upgrade at an idle boundary: bound tasks already running stay untouched.
