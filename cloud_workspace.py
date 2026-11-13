@@ -1,6 +1,7 @@
 """Supabase sign-in and durable-result facade around the unchanged serial runner."""
 import json
 import time
+from pathlib import Path
 from datetime import datetime, timezone
 
 import streamlit as st
@@ -122,9 +123,9 @@ def sign_in(url, key, signup_enabled=False):
                 st.session_state.pop(name, None)
             st.rerun()
         return client
-    st.title('Your P2X4 research workspace')
-    st.write('Sign in to keep your compound registry and saved evidence private to your account.')
-    st.caption('Cloud pilot: saved records survive browser sessions. Docking can still be interrupted by the Streamlit host. Existing laptop accounts have not been migrated.')
+    video = Path(__file__).resolve().parent / 'pathway.mp4'
+    if video.is_file():
+        st.video(str(video), autoplay=True, muted=True, loop=True)
     with st.form('cloud-sign-in', clear_on_submit=True):
         email = st.text_input('Email address', max_chars=254)
         password = st.text_input('Password', type='password')

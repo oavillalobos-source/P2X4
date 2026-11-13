@@ -95,9 +95,7 @@ if is_admin:
 if st.session_state.get('nav') not in pages:
     st.session_state.nav = pages[0]
 page = st.radio('Workspace navigation', pages, horizontal=True, key='nav', label_visibility='collapsed')
-if cloud_mode:
-    st.caption('Private cloud registry · Evidence is durable only after “Cloud archive saved” appears. Docking and waiting jobs can be interrupted by host restarts; keep independent downloads.')
-else:
+if not cloud_mode:
     st.caption('Temporary session: download results before leaving. Restarting the app or refreshing your session can lose jobs and access. No account sign-in is required.')
 
 help_text = {
@@ -223,7 +221,7 @@ elif page == 'Test a compound':
     with right:
         if (ROOT / 'pathway.mp4').exists():
             st.video(str(ROOT / 'pathway.mp4'), autoplay=True, muted=True, loop=True)
-        st.caption('ATP–P2X4 neuroimmune signaling. Explanatory illustration, not docking or time-course data.')
+        st.caption('ATP–P2X4 neuroimmune signaling.')
     single, batch = st.tabs(['Single compound', 'Batch campaign'])
     with single:
         entry, workflow = st.columns([1.65, 1], gap='large')
