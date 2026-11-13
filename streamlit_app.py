@@ -83,7 +83,7 @@ def navigate(page, job_id=None):
     if job_id:
         st.session_state.selected_job = job_id
 
-pages = ['Test a compound', 'Compound registry', 'More about the target receptor', 'Compound results', 'Compare compounds']
+pages = ['Test a compound', 'Compound registry', 'More about the target receptor', 'Compound results', 'Compare compounds', 'How to cite']
 is_admin = False
 if cloud_mode:
     try:
@@ -107,6 +107,7 @@ help_text = {
     pages[3]: 'Choose one of your jobs. Completed results include identity, scores, seed and state evidence, descriptors, warnings and provenance. Download the ZIP for structures and complete evidence. A docking score does not establish measured activity.',
     pages[4]: 'Select two to four completed jobs for side-by-side inspection. Compare structures, pose evidence and protocol settings; raw docking scores do not provide calibrated affinity across different scaffolds.'
 }
+help_text['How to cite'] = 'Choose APA or AMA, select only the methods used, and download references. Follow the dataset guidance for your own results and figures.'
 help_text['Administration'] = 'Pause or resume dispatch on this worker. Running calculations finish normally. Researcher structures and results remain private.'
 with st.popover('ⓘ  Help for this page'):
     st.write(help_text[page] if not cloud_mode else help_text[page].replace('this browser session', 'your private cloud registry').replace('this session', 'your account').replace('Download the session table and result ZIPs before leaving.', 'Download the registry table and result ZIPs for an independent backup.'))
@@ -375,6 +376,10 @@ elif page == 'Compound results':
                 except (ValueError, PermissionError) as exc:
                     st.error(str(exc))
     detail()
+
+elif page == 'How to cite':
+    from citations import render
+    render()
 
 elif page == 'Compare compounds':
     hero('Side-by-side evidence', 'Compare compounds.', 'Review up to four completed calculations without treating docking scores as measured affinities.')
