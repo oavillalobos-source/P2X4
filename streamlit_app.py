@@ -78,12 +78,18 @@ def owned_jobs():
         st.caption('Private cloud storage is unavailable. No fallback to anonymous temporary storage.')
         st.stop()
 
+COMPOUND_VIEWS = ['Compound registry', 'Compound results', 'Compare compounds']
+
 def navigate(page, job_id=None):
-    st.session_state.nav = page
+    if page in COMPOUND_VIEWS:
+        st.session_state.nav = 'Compound workspace'
+        st.session_state.compound_view = page
+    else:
+        st.session_state.nav = page
     if job_id:
         st.session_state.selected_job = job_id
 
-pages = ['Test a compound', 'Compound registry', 'More about the target receptor', 'Compound results', 'Compare compounds', 'How to cite']
+pages = ['Test a compound', 'Compound workspace', 'More about the target receptor', 'How to cite']
 is_admin = False
 if cloud_mode:
     try:
@@ -92,18 +98,25 @@ if cloud_mode:
         pass  # Fail closed if the role migration is not installed or unavailable.
 if is_admin:
     pages.append('Administration')
+if st.session_state.get('nav') in COMPOUND_VIEWS:
+    navigate(st.session_state.nav)
 if st.session_state.get('nav') not in pages:
     st.session_state.nav = pages[0]
 page = st.radio('Workspace navigation', pages, horizontal=True, key='nav', label_visibility='collapsed')
+if page == 'Compound workspace':
+    if st.session_state.get('compound_view') not in COMPOUND_VIEWS:
+        st.session_state.compound_view = COMPOUND_VIEWS[0]
+    page = st.radio('Compound workspace views', COMPOUND_VIEWS, horizontal=True, key='compound_view',
+                    format_func=lambda name: {'Compound registry': 'Registry', 'Compound results': 'Results', 'Compare compounds': 'Compare'}[name])
 if not cloud_mode:
     st.caption('Temporary session: download results before leaving. Restarting the app or refreshing your session can lose jobs and access. No account sign-in is required.')
 
 help_text = {
-    pages[0]: 'Enter a compound code, its supplied name and isomeric SMILES. Inspect the structure, then run the fixed five-seed protocol. For a batch, upload the provided CSV template (up to 25 rows). Recent jobs link to a separate results view.',
-    pages[1]: 'Search jobs from this browser session. Open a completed compound to review its evidence or choose up to four completed jobs in Compare compounds. Download the session table and result ZIPs before leaving.',
-    pages[2]: 'Read the receptor context and the limits of the fixed 9BQI docking model. Follow the primary-source links for biological and structural evidence.',
-    pages[3]: 'Choose one of your jobs. Completed results include identity, scores, seed and state evidence, descriptors, warnings and provenance. Download the ZIP for structures and complete evidence. A docking score does not establish measured activity.',
-    pages[4]: 'Select two to four completed jobs for side-by-side inspection. Compare structures, pose evidence and protocol settings; raw docking scores do not provide calibrated affinity across different scaffolds.'
+    'Test a compound': 'Enter a compound code, its supplied name and isomeric SMILES. Inspect the structure, then run the fixed five-seed protocol. For a batch, upload the provided CSV template (up to 25 rows). Recent jobs link to a separate results view.',
+    'Compound registry': 'Search jobs from this browser session. Open a completed compound to review its evidence or choose up to four completed jobs in Compare compounds. Download the session table and result ZIPs before leaving.',
+    'More about the target receptor': 'Read the receptor context and the limits of the fixed 9BQI docking model. Follow the primary-source links for biological and structural evidence.',
+    'Compound results': 'Choose one of your jobs. Completed results include identity, scores, seed and state evidence, descriptors, warnings and provenance. Download the ZIP for structures and complete evidence. A docking score does not establish measured activity.',
+    'Compare compounds': 'Select two to four completed jobs for side-by-side inspection. Compare structures, pose evidence and protocol settings; raw docking scores do not provide calibrated affinity across different scaffolds.'
 }
 help_text['How to cite'] = 'Choose APA or AMA, select only the methods used, and download references. Follow the dataset guidance for your own results and figures.'
 help_text['Administration'] = 'Pause or resume dispatch on this worker. Running calculations finish normally. Researcher structures and results remain private.'
@@ -295,7 +308,7 @@ elif page == 'Compound registry':
         if filtered:
             st.dataframe([table_row(j) for j in filtered], hide_index=True, use_container_width=True)
             chosen = st.selectbox('Open a compound', [j['job_id'] for j in filtered], format_func=lambda jid: next(f"{j['compound_id']} · {j['compound_name']} · {j['state']}" for j in filtered if j['job_id']==jid))
-            if st.button('Open dedicated result', on_click=navigate, args=('Compound results', chosen), type='primary'):
+            if st.button('Open result', on_click=navigate, args=('Compound results', chosen), type='primary'):
                 st.rerun()
             st.download_button('Export registry CSV', csv_bytes([table_row(j) for j in filtered]), 'p2x4-session-registry.csv')
         if st.button('Compare completed compounds', on_click=navigate, args=('Compare compounds',)):
