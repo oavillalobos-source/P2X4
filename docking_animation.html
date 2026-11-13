@@ -1,0 +1,60 @@
+<style>body{margin:0;font-family:sans-serif}.docking-visual{max-width:400px;margin:auto}.docking-visual { position: relative; overflow: hidden; border: 1px solid rgba(19,112,93,.22); border-radius: 16px; background: linear-gradient(145deg, #0c3435, #164b43); box-shadow: inset 0 0 45px rgba(105,210,172,.08); }
+.docking-visual svg { display: block; width: 100%; height: auto; }
+.dock-grid path { fill: none; stroke: rgba(176,225,207,.1); stroke-width: 1; stroke-dasharray: 2 7; animation: dock-grid-drift 8s linear infinite; }
+.receptor-subunit { fill: #4f927d; stroke: #a8d7c5; stroke-width: 1.5; animation: receptor-breathe 3.2s ease-in-out infinite; }
+.subunit-b { animation-delay: -.9s; }
+.subunit-c { animation-delay: -1.8s; }
+.receptor-pore { fill: url(#pore-glow); stroke: rgba(202,245,228,.72); stroke-width: 1.4; }
+.p2x4-receptor > text { fill: #e0f3ec; font: 900 9px ui-sans-serif, sans-serif; text-anchor: middle; letter-spacing: .08em; }
+.p2x4-receptor .pocket-label { fill: #a7cabe; font: 700 7px ui-monospace, monospace; letter-spacing: .03em; }
+.pocket-target { fill: rgba(239,168,91,.28); stroke: #f3bc78; stroke-width: 1.5; }
+.scan-ring { fill: none; stroke: #efaa5c; stroke-width: 1.5; transform-box: fill-box; transform-origin: center; animation: pocket-scan 2.2s ease-out infinite; }
+.ring-two { animation-delay: 1.1s; }
+.docking-ligand { fill: url(#ligand-fill); stroke: #ffe2bb; stroke-width: 1.4; transform: translate(48px, 92px); animation: ligand-search 4.8s ease-in-out infinite; filter: drop-shadow(0 0 7px rgba(242,174,94,.55)); }
+.docking-visual[data-step="docking"] .docking-ligand { animation-duration: 2.6s; }
+.docking-visual[data-step="analyzing"] .docking-ligand, .docking-visual.complete .docking-ligand { animation: ligand-bound 1.7s ease-in-out infinite; }
+.analysis-particles { fill: #b9f0dc; opacity: 0; animation: analysis-spark 1.7s ease-in-out infinite; }
+.docking-visual[data-step="analyzing"] .analysis-particles, .docking-visual.complete .analysis-particles { opacity: 1; }
+.docking-visual.failed .docking-ligand, .docking-visual.failed .receptor-subunit, .docking-visual.failed .scan-ring { animation-play-state: paused; }
+.docking-visual.failed { border-color: rgba(166,64,53,.45); filter: saturate(.62); }
+.visual-label { fill: #83aca0; font: 700 7px ui-monospace, monospace; letter-spacing: .12em; }
+.docking-stage-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; padding: 0 14px 14px; }
+.docking-stage { display: flex; align-items: center; justify-content: center; gap: 6px; color: #8cb2a7; font-size: 8px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+.docking-stage i { width: 7px; height: 7px; border: 1px solid #739c90; border-radius: 50%; }
+.docking-stage.active { color: #f2bd78; }
+.docking-stage.active i { border-color: #f2bd78; background: #f2bd78; box-shadow: 0 0 0 4px rgba(242,189,120,.14); animation: stage-pulse 1.2s ease-in-out infinite; }
+.docking-stage.complete { color: #bde6d6; }
+.docking-stage.complete i { border-color: #75c5a7; background: #75c5a7; }
+@keyframes dock-grid-drift { to { stroke-dashoffset: -36; } }
+@keyframes receptor-breathe { 0%,100% { opacity: .82; stroke-width: 1.35; } 50% { opacity: 1; stroke-width: 2.15; } }
+@keyframes pocket-scan { 0% { scale: .62; opacity: .9; } 85%,100% { scale: 1.35; opacity: 0; } }
+@keyframes ligand-search { 0% { transform: translate(48px, 92px) rotate(-8deg); } 28% { transform: translate(105px, 62px) rotate(25deg); } 58% { transform: translate(158px, 110px) rotate(68deg); } 78%,92% { transform: translate(208px, 88px) rotate(112deg); } 100% { transform: translate(48px, 92px) rotate(-8deg); } }
+@keyframes ligand-bound { 0%,100% { transform: translate(208px, 88px) rotate(112deg) scale(.94); } 50% { transform: translate(208px, 88px) rotate(112deg) scale(1.08); } }
+@keyframes analysis-spark { 0%,100% { opacity: .3; } 50% { opacity: 1; } }
+@media(prefers-reduced-motion:reduce){*{animation:none!important}}</style><div class="docking-visual" data-step="__STEP__">          <svg viewBox="0 0 360 190" role="img">
+            <defs>
+              <radialGradient id="pore-glow" cx="50%" cy="50%" r="55%"><stop offset="0" stop-color="#c6f2df" stop-opacity=".92"/><stop offset="1" stop-color="#58a78b" stop-opacity=".08"/></radialGradient>
+              <linearGradient id="ligand-fill" x1="0" x2="1"><stop stop-color="#f3be70"/><stop offset="1" stop-color="#dc7d35"/></linearGradient>
+            </defs>
+            <g class="dock-grid">
+              <path d="M20 42H340M20 78H340M20 114H340M20 150H340M56 20V170M104 20V170M152 20V170M200 20V170M248 20V170M296 20V170"/>
+            </g>
+            <g class="p2x4-receptor">
+              <ellipse class="receptor-subunit subunit-a" cx="250" cy="67" rx="42" ry="24" transform="rotate(-26 250 67)"/>
+              <ellipse class="receptor-subunit subunit-b" cx="274" cy="125" rx="42" ry="24" transform="rotate(32 274 125)"/>
+              <ellipse class="receptor-subunit subunit-c" cx="214" cy="124" rx="42" ry="24" transform="rotate(90 214 124)"/>
+              <circle class="receptor-pore" cx="246" cy="104" r="23"/>
+              <circle class="pocket-target" cx="216" cy="88" r="10"/>
+              <circle class="scan-ring ring-one" cx="216" cy="88" r="18"/>
+              <circle class="scan-ring ring-two" cx="216" cy="88" r="28"/>
+              <text x="246" y="108">P2X4</text>
+              <text class="pocket-label" x="202" y="67">BAY pocket</text>
+            </g>
+            <g class="docking-ligand">
+              <polygon points="0,-12 11,-6 11,6 0,12 -11,6 -11,-6"/>
+              <circle cx="16" cy="-8" r="4"/>
+              <circle cx="-16" cy="8" r="4"/>
+            </g>
+            <g class="analysis-particles"><circle cx="193" cy="69" r="3"/><circle cx="225" cy="61" r="2.5"/><circle cx="235" cy="91" r="2"/></g>
+            <text class="visual-label" x="20" y="178">IN-SILICO SEARCH SPACE</text>
+          </svg><div class="docking-stage-row"><span class="docking-stage __PREP__">Prepare</span><span class="docking-stage __DOCK__">Dock</span><span class="docking-stage __ANALYZE__">Analyze</span></div></div>

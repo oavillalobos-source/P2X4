@@ -172,12 +172,16 @@ def csv_bytes(rows):
 
 def progress(job):
     if job['state'] == 'running':
+        from docking_animation import render as render_docking_animation
+        step = 'preparing'
         try:
             status = json.loads((worker.root / job['job_id'] / 'status.json').read_text())
+            step = status.get('step', 'preparing')
             percent = max(0, min(100, int(status.get('progress_percent', 0))))
             st.progress(percent, text=f"{percent}% · {status.get('detail', status.get('step', 'Running'))}")
         except (OSError, ValueError):
             st.info('Preparing calculation…')
+        render_docking_animation(step)
     elif job['state'] == 'queued':
         st.info('Queued · another compound may be running in the shared queue.')
     if job.get('error'):
