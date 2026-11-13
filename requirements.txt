@@ -11,4 +11,4 @@ requests>=2.32,<3
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch==2.15.0+cpu; sys_platform == "linux"
 admet-ai==2.0.1
-chemprop==2.3.1
+chemprop==2.2.2

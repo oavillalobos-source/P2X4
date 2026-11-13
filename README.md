@@ -78,7 +78,7 @@ The earlier session-only limitations apply when neither storage mode is set.
 ### Optional ADMET-AI follow-up
 Completed compounds have a Run ADMET & Toxicity button. Requests share the
 single docking executor, honor queue pause, and never run automatically for a
-batch. ADMET-AI 2.0.1 / Chemprop 2.3.1 uses CPU inference in a subprocess with a
+batch. ADMET-AI 2.0.1 / Chemprop 2.2.2 uses CPU inference in a subprocess with a
 10-minute timeout. The model is released from memory when that process exits.
 Reports contain 41 supported ADMET endpoints, model file SHA-256 hashes,
 software versions, source and timestamp. Probabilities are not confidence
