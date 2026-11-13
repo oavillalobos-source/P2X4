@@ -355,7 +355,7 @@ elif page == 'Compound results':
             cols[1].metric('Site-valid seeds', f"{summary['valid_site_count']}/{summary['seed_count']}")
             cols[2].metric('Native-contact recovery', f"{summary['median_native_contact_recovery']:.1%}")
             st.info('Computational evidence only. The activity rule remains development only; scores and contact recovery do not establish measured affinity or activity.')
-            overview, evidence, properties, exports = st.tabs(['Overview', 'Pose & interaction evidence', 'Molecular properties', 'Report & downloads'])
+            overview, evidence, properties, admet, exports = st.tabs(['Overview', 'Pose & interaction evidence', 'Molecular properties', 'ADMET & Toxicity', 'Report & downloads'])
             with overview:
                 st.write(result.get('methods_text', ''))
                 with st.expander('Auditable compound record'):
@@ -372,7 +372,20 @@ elif page == 'Compound results':
                 st.caption('Contacts above come from the docking runner. ProLIF interaction diagrams and TIFF generation are not available in this cloud edition.')
             with properties:
                 st.dataframe([{'Property': k, 'Value': str(v)} for k,v in desc.items()], hide_index=True, use_container_width=True)
-                st.caption('Calculated descriptors, not an ADMET or toxicity prediction. External ADMET, selectivity and safety evidence has not been generated.')
+                st.caption('Calculated descriptors, not an ADMET or toxicity prediction. External predictions, if imported, are available under ADMET & Toxicity.')
+            with admet:
+                from admet_reports import render as render_admet
+                def save_admet(report):
+                    updated = dict(result, admet_report=report)
+                    if cloud_mode:
+                        client.update_job(selected, {'result': updated})
+                        worker._at = float('-inf')
+                    path = worker.root / selected / 'result.json'
+                    if path.is_file():
+                        temporary = path.with_suffix('.admet.tmp')
+                        temporary.write_text(json.dumps(updated, indent=2))
+                        temporary.replace(path)
+                render_admet(job, result, save_admet)
             with exports:
                 st.download_button('Download result JSON', json.dumps(result, indent=2), f'{selected}-result.json', mime='application/json')
                 st.download_button('Download per-seed CSV', csv_bytes(result.get('per_seed', [])), f'{selected}-seeds.csv')
@@ -440,4 +453,4 @@ else:
         st.markdown('[RCSB PDB 9BQI](https://www.rcsb.org/structure/9BQI) · [Primary structural study](https://pubmed.ncbi.nlm.nih.gov/39823330/) · [IUPHAR P2X family review](https://pubmed.ncbi.nlm.nih.gov/33125712/)')
 
 st.divider()
-st.caption('P2X4 Dock · Experimental live edition | Private Supabase accounts and saved evidence | Role-protected queue administration | ADMET and ProLIF are not enabled in this edition.' if cloud_mode else 'P2X4 Dock · Experimental live edition | Session storage only | Researcher accounts, permanent registry and administrator controls remain on the original platform.')
+st.caption('P2X4 Dock · Experimental live edition | Private Supabase accounts and saved evidence | Role-protected queue administration | ADMET report import available · ProLIF is not enabled in this edition.' if cloud_mode else 'P2X4 Dock · Experimental live edition | Session storage only | Researcher accounts, permanent registry and administrator controls remain on the original platform.')
