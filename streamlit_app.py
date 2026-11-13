@@ -60,6 +60,11 @@ if cloud_mode:
         ensure_admin_client(client)
         owner = client.user['id']
         shared_worker = engine()
+        from worker_compat import ensure_admin_worker
+        try:
+            ensure_admin_worker(shared_worker)
+        except RuntimeError:
+            pass  # Preserve active work; upgrade at the next idle boundary.
         if ('_cloud_worker' not in st.session_state
                 or st.session_state._cloud_worker.engine is not shared_worker):
             st.session_state._cloud_worker = CloudEngine(shared_worker, client)
@@ -237,6 +242,8 @@ if page == 'Administration':
         if st.button('Resume queue' if state['paused'] else 'Pause queue'):
             shared_worker.admin_queue(client, paused=not state['paused'])
             st.rerun()
+        from admin_researchers import render as render_researcher_queue
+        render_researcher_queue(shared_worker, client)
     except (CloudError, PermissionError, RuntimeError) as exc:
         st.error(str(exc))
 elif page == 'Test a compound':

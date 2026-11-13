@@ -5,7 +5,7 @@ import threading
 
 def ensure_admin_worker(worker):
     with worker.lock:
-        if callable(getattr(worker, 'admin_queue', None)) and hasattr(worker, 'dispatch'):
+        if callable(getattr(worker, 'admin_queue', None)) and getattr(getattr(worker, 'pool',None),'version',None) == 1:
             return worker
         if any(job['state'] in ('queued', 'running') for job in worker.jobs.values()) or any(task['state'] in ('queued','running') for task in getattr(worker,'_admet_tasks',{}).values()):
             raise RuntimeError('Queue controls are waiting for a worker update. Existing queued and running jobs will continue. Reopen Administration after they finish; do not restart the app while calculations are active.')
@@ -14,6 +14,10 @@ def ensure_admin_worker(worker):
         current = importlib.reload(importlib.import_module('engine')).Engine
         worker.dispatch = threading.Condition(worker.lock)
         worker.paused = False
+        worker.pool.shutdown(wait=False)
+        worker._processes = {}
+        from queue_scheduler import WorkQueue
+        worker.pool = WorkQueue(worker)
         worker.__class__ = current
         return worker
 

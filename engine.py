@@ -15,20 +15,21 @@ import shutil
 import platform
 from urllib.request import urlopen
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor
+from queue_scheduler import WorkQueue
 
 ROOT = Path(__file__).resolve().parent
 
 class Engine:
     def __init__(self):
         self.lock = threading.RLock()
-        self.pool = ThreadPoolExecutor(max_workers=1)
         self.root = Path(tempfile.mkdtemp(prefix='p2x4-live-'))
         self.jobs = {}
         self.instance_id = str(uuid.uuid4())
         self._listeners = {}
         self.dispatch = threading.Condition(self.lock)
         self.paused = False
+        self._processes = {}
+        self.pool = WorkQueue(self)
         if platform.system() == 'Linux':
             manifest = json.loads((ROOT / 'bundle_manifest.json').read_text())
             binary = self.root / 'vina'
@@ -50,9 +51,11 @@ class Engine:
             if not 1 <= len(rows) <= 25 or active + len(rows) > 25:
                 raise ValueError('The shared queue holds at most 25 waiting or running compounds. Try again later.')
             ids, prepared = [], []
+            campaign_id = uuid.uuid4().hex
+            submitted_at = time.time()
             for row in rows:
                 job_id = uuid.uuid4().hex
-                prepared.append(dict(row, owner=owner, state='queued', job_id=job_id, created=time.time()))
+                prepared.append(dict(row, owner=owner, state='queued', job_id=job_id, campaign_id=campaign_id, created=submitted_at))
                 ids.append(job_id)
             if on_change:
                 # Fail closed before starting any calculation when persistence fails.
@@ -62,21 +65,21 @@ class Engine:
                 self.jobs[job_id] = job
                 if on_change:
                     self._listeners[job_id] = on_change
-                self.pool.submit(self._run, job_id)
+                self.pool.submit(self._run, job_id, owner=owner, campaign=campaign_id)
             return ids
 
     def _notify(self, job_id):
         with self.lock:
             callback = self._listeners.get(job_id)
             job = dict(self.jobs[job_id])
-        if callback:
-            try:
-                callback('changed', [job])
-                with self.lock:
-                    self.jobs[job_id].pop('sync_error', None)
-            except Exception as exc:
-                with self.lock:
-                    self.jobs[job_id]['sync_error'] = str(exc)
+            if callback:
+                try:
+                    callback('changed', [job])
+                    with self.lock:
+                        self.jobs[job_id].pop('sync_error', None)
+                except Exception as exc:
+                    with self.lock:
+                        self.jobs[job_id]['sync_error'] = str(exc)
 
     def _run(self, job_id):
         with self.lock:
@@ -96,12 +99,21 @@ class Engine:
         try:
             with (self.root / f'{job_id}.log').open('w') as log:
                 proc = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, env=env, start_new_session=True)
+                with self.lock:
+                    self._processes[('dock', job_id)] = proc
+                    if job.get('cancel_requested'):
+                        os.killpg(proc.pid, signal.SIGKILL)
                 try:
                     code = proc.wait(timeout=7200)
                 except subprocess.TimeoutExpired:
                     os.killpg(proc.pid, signal.SIGKILL)
                     proc.wait()
                     raise RuntimeError('Two-hour runtime limit reached. Partial output is downloadable; this run is incomplete.')
+                finally:
+                    with self.lock:
+                        self._processes.pop(('dock',job_id), None)
+            if job.get('cancel_requested'):
+                raise RuntimeError('Stopped by administrator.')
             if code != 0 or not (path / 'result.json').is_file():
                 raise RuntimeError('Docking did not complete. Download the log and partial output for diagnosis.')
             result = json.loads((path / 'result.json').read_text())
@@ -111,10 +123,10 @@ class Engine:
                 result['hosting']['storage'] = 'Private Supabase archive requested; verify cloud-save status in registry'
             (path / 'result.json').write_text(json.dumps(result, indent=2))
             with self.lock:
-                job['state'] = 'complete'
+                job['state'] = 'cancelled' if job.get('cancel_requested') else 'complete'
         except Exception as exc:
             with self.lock:
-                job.update(state='failed', error=str(exc))
+                job.update(state='cancelled' if job.get('cancel_requested') else 'failed', error=str(exc))
         self._notify(job_id)
 
     def admin_queue(self, client, paused=None):

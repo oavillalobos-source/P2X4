@@ -82,6 +82,8 @@ def render(job, result, save, engine=None, owner=None):
         if task:
             if task['state'] in ('queued','running'):
                 st.info('ADMET: ' + task['state'] + '. Shares the docking queue; this view refreshes automatically.')
+            elif task['state'] == 'cancelled':
+                st.info('ADMET request cancelled by the administrator.')
             elif task['state'] == 'failed':
                 st.error(task['error'])
             elif task.get('report'):

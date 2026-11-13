@@ -147,7 +147,7 @@ class SupabaseClient:
     def insert_jobs(self, jobs, instance_id):
         with self.lock:
             self._ready()
-            rows = [{k: job[k] for k in ('job_id', 'owner', 'compound_id', 'compound_name', 'smiles', 'state', 'created')}
+            rows = [{k: job.get(k) for k in ('job_id', 'owner', 'compound_id', 'compound_name', 'smiles', 'state', 'created', 'campaign_id')}
                     for job in jobs]
             for row in rows:
                 self.job_id(row['job_id'])
