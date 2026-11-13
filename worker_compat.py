@@ -16,3 +16,16 @@ def ensure_admin_worker(worker):
         worker.paused = False
         worker.__class__ = current
         return worker
+
+
+def ensure_admin_client(client):
+    """Restore the role RPC on a pre-upgrade session, retaining its credentials."""
+    from types import MethodType
+    with client.lock:
+        if not callable(getattr(client, 'is_admin', None)):
+            def is_admin(self):
+                with self.lock:
+                    self._ready()
+                    return self._raw('POST', '/rest/v1/rpc/p2x4_is_admin', payload={}) is True
+            client.is_admin = MethodType(is_admin, client)
+    return client

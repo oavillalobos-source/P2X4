@@ -56,6 +56,8 @@ if cloud_mode:
             raise CloudError('Both the Supabase project URL and publishable key must be configured.')
         client = sign_in(cloud_url, cloud_key,
             str(setting('P2X4_SUPABASE_SIGNUP_ENABLED', False)).lower() == 'true')
+        from worker_compat import ensure_admin_client
+        ensure_admin_client(client)
         owner = client.user['id']
         shared_worker = engine()
         if ('_cloud_worker' not in st.session_state
