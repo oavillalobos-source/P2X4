@@ -79,3 +79,8 @@ microspecies setting is changed.
 - https://supabase.com/docs/guides/auth/auth-smtp
 - https://supabase.github.io/auth/
 - https://supabase.com/docs/guides/platform/free-project-pausing
+
+## Administrator role
+Apply admin.sql in the Supabase SQL editor as project owner after reviewing the named confirmed account. Only that user receives the role. Authenticated users cannot read or edit the role table; the RPC reports only their own membership. Every queue control rechecks the server role. Remove membership via owner SQL to revoke access. Existing job/storage ownership policies are unchanged.
+
+The Administration page exposes aggregate counts and pause/resume dispatch for the current Streamlit worker. Running jobs finish; waiting jobs remain queued. Pause state resets on host restart. It does not expose private structures, manage researcher credentials, or stop/resume running calculations.

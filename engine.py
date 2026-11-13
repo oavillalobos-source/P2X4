@@ -27,6 +27,8 @@ class Engine:
         self.jobs = {}
         self.instance_id = str(uuid.uuid4())
         self._listeners = {}
+        self.dispatch = threading.Condition(self.lock)
+        self.paused = False
         if platform.system() == 'Linux':
             manifest = json.loads((ROOT / 'bundle_manifest.json').read_text())
             binary = self.root / 'vina'
@@ -79,6 +81,8 @@ class Engine:
     def _run(self, job_id):
         with self.lock:
             job = self.jobs[job_id]
+            while self.paused and job['state'] == 'queued':
+                self.dispatch.wait()
             if job['state'] != 'queued':
                 return
             job['state'] = 'running'
@@ -113,6 +117,18 @@ class Engine:
                 job.update(state='failed', error=str(exc))
         self._notify(job_id)
 
+    def admin_queue(self, client, paused=None):
+        # Check authorization again for every action, including stale admin pages.
+        if not client.is_admin():
+            raise PermissionError('Administrator access required.')
+        with self.dispatch:
+            if paused is not None:
+                self.paused = bool(paused)
+                self.dispatch.notify_all()
+            return {'paused': self.paused, 'counts': {
+                state: sum(j['state'] == state for j in self.jobs.values())
+                for state in ('queued', 'running', 'complete', 'failed', 'cancelled')}}
+
     def owned(self, owner):
         with self.lock:
             return [dict(j) for j in self.jobs.values() if j['owner'] == owner]
@@ -124,6 +140,7 @@ class Engine:
                 if job['owner'] == owner and job['state'] == 'queued':
                     job['state'] = 'cancelled'
                     cancelled.append(job['job_id'])
+            self.dispatch.notify_all()
         for job_id in cancelled:
             self._notify(job_id)
 

@@ -123,6 +123,12 @@ class SupabaseClient:
             raise CloudError('Invalid cloud job identifier.')
         return value
 
+    def is_admin(self):
+        """Server-authoritative role check; never trust email or user_metadata."""
+        with self.lock:
+            self._ready()
+            return self._raw('POST', '/rest/v1/rpc/p2x4_is_admin', payload={}) is True
+
     def jobs(self):
         with self.lock:
             self._ready()

@@ -84,6 +84,16 @@ def navigate(page, job_id=None):
         st.session_state.selected_job = job_id
 
 pages = ['Test a compound', 'Compound registry', 'More about the target receptor', 'Compound results', 'Compare compounds']
+is_admin = False
+if cloud_mode:
+    try:
+        is_admin = client.is_admin()
+    except CloudError:
+        pass  # Fail closed if the role migration is not installed or unavailable.
+if is_admin:
+    pages.append('Administration')
+if st.session_state.get('nav') not in pages:
+    st.session_state.nav = pages[0]
 page = st.radio('Workspace navigation', pages, horizontal=True, key='nav', label_visibility='collapsed')
 if cloud_mode:
     st.caption('Private cloud registry · Evidence is durable only after “Cloud archive saved” appears. Docking and waiting jobs can be interrupted by host restarts; keep independent downloads.')
@@ -97,6 +107,7 @@ help_text = {
     pages[3]: 'Choose one of your jobs. Completed results include identity, scores, seed and state evidence, descriptors, warnings and provenance. Download the ZIP for structures and complete evidence. A docking score does not establish measured activity.',
     pages[4]: 'Select two to four completed jobs for side-by-side inspection. Compare structures, pose evidence and protocol settings; raw docking scores do not provide calibrated affinity across different scaffolds.'
 }
+help_text['Administration'] = 'Pause or resume dispatch on this worker. Running calculations finish normally. Researcher structures and results remain private.'
 with st.popover('ⓘ  Help for this page'):
     st.write(help_text[page] if not cloud_mode else help_text[page].replace('this browser session', 'your private cloud registry').replace('this session', 'your account').replace('Download the session table and result ZIPs before leaving.', 'Download the registry table and result ZIPs for an independent backup.'))
 
@@ -191,7 +202,20 @@ def protocol():
     a.metric('Minimum pH', '6.8'); b.metric('Maximum pH', '8.0'); c.metric('State cap', '8')
     st.caption('Automatic microspecies enumeration. One compound at a time; up to 40 Vina runs per compound. Protocol settings are fixed.')
 
-if page == 'Test a compound':
+if page == 'Administration':
+    st.title('Administration')
+    st.caption('Authorized platform administrator. Researcher records remain private.')
+    try:
+        state = shared_worker.admin_queue(client)
+        st.write('Queue dispatch: ' + ('Paused' if state['paused'] else 'Active'))
+        st.json(state['counts'])
+        st.caption('Controls apply to this live worker only and reset after a host restart. Pausing holds waiting jobs; it does not interrupt running calculations or change docking settings.')
+        if st.button('Resume queue' if state['paused'] else 'Pause queue'):
+            shared_worker.admin_queue(client, paused=not state['paused'])
+            st.rerun()
+    except (CloudError, PermissionError) as exc:
+        st.error(str(exc))
+elif page == 'Test a compound':
     left, right = st.columns([1.6, 1], gap='large')
     with left:
         hero('Structure-guided exploration', 'Explore the P2X4 pocket.', 'From a molecular structure to traceable docking evidence. Prepare, dock and inspect a compound against the fixed human P2X4 allosteric site.')
@@ -394,4 +418,4 @@ else:
         st.markdown('[RCSB PDB 9BQI](https://www.rcsb.org/structure/9BQI) · [Primary structural study](https://pubmed.ncbi.nlm.nih.gov/39823330/) · [IUPHAR P2X family review](https://pubmed.ncbi.nlm.nih.gov/33125712/)')
 
 st.divider()
-st.caption('P2X4 Dock · Experimental live edition | Private Supabase accounts and saved evidence | ADMET, ProLIF and administration are not enabled in this edition.' if cloud_mode else 'P2X4 Dock · Experimental live edition | Session storage only | Researcher accounts, permanent registry and administrator controls remain on the original platform.')
+st.caption('P2X4 Dock · Experimental live edition | Private Supabase accounts and saved evidence | Role-protected queue administration | ADMET and ProLIF are not enabled in this edition.' if cloud_mode else 'P2X4 Dock · Experimental live edition | Session storage only | Researcher accounts, permanent registry and administrator controls remain on the original platform.')
