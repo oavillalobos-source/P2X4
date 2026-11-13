@@ -222,6 +222,8 @@ if page == 'Administration':
     st.title('Administration')
     st.caption('Authorized platform administrator. Researcher records remain private.')
     try:
+        from worker_compat import ensure_admin_worker
+        ensure_admin_worker(shared_worker)
         state = shared_worker.admin_queue(client)
         st.write('Queue dispatch: ' + ('Paused' if state['paused'] else 'Active'))
         st.json(state['counts'])
@@ -229,7 +231,7 @@ if page == 'Administration':
         if st.button('Resume queue' if state['paused'] else 'Pause queue'):
             shared_worker.admin_queue(client, paused=not state['paused'])
             st.rerun()
-    except (CloudError, PermissionError) as exc:
+    except (CloudError, PermissionError, RuntimeError) as exc:
         st.error(str(exc))
 elif page == 'Test a compound':
     left, right = st.columns([1.6, 1], gap='large')
