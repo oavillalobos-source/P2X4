@@ -231,17 +231,6 @@ if page == 'Administration':
     try:
         from worker_compat import ensure_admin_worker
         ensure_admin_worker(shared_worker)
-        state = shared_worker.admin_queue(client)
-        st.write('Queue dispatch: ' + ('Paused' if state['paused'] else 'Active'))
-        st.json(state['counts'])
-        with shared_worker.lock:
-            admet_counts = {s: sum(t['state'] == s for t in getattr(shared_worker, '_admet_tasks', {}).values()) for s in ('queued', 'running', 'complete', 'failed')}
-        st.write('ADMET follow-up queue')
-        st.json(admet_counts)
-        st.caption('Controls apply to this live worker only and reset after a host restart. Pausing holds waiting jobs; it does not interrupt running calculations or change docking settings.')
-        if st.button('Resume queue' if state['paused'] else 'Pause queue'):
-            shared_worker.admin_queue(client, paused=not state['paused'])
-            st.rerun()
         from admin_researchers import render as render_researcher_queue
         render_researcher_queue(shared_worker, client)
     except (CloudError, PermissionError, RuntimeError) as exc:
