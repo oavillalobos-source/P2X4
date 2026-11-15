@@ -77,9 +77,9 @@ else:
     owner = st.session_state.owner
     worker = engine()
 
-def owned_jobs():
+def owned_jobs(include_deleted=False):
     try:
-        return worker.owned(owner)
+        return [j for j in worker.owned(owner) if include_deleted or not j.get("deleted_at")]
     except ValueError as exc:
         st.error(str(exc))
         st.caption('Private cloud storage is unavailable. No fallback to anonymous temporary storage.')
@@ -304,7 +304,9 @@ elif page == 'Compound registry':
     hero('In-silico P2X4 portfolio', 'Compound registry.', 'Search your private compounds, open their evidence and compare completed calculations.' if cloud_mode else 'Search this session’s compounds, open their evidence and compare completed calculations.')
     @st.fragment(run_every=5)
     def registry():
-        jobs = owned_jobs()
+        from registry_actions import restart, set_deleted
+        trash = st.toggle('Show deleted entries (Trash)')
+        jobs = [j for j in owned_jobs(include_deleted=True) if bool(j.get('deleted_at')) == trash]
         cols = st.columns(3)
         for col, label, count in zip(cols, ['Your compounds', 'Completed', 'Waiting / running'], [len(jobs), sum(j['state']=='complete' for j in jobs), sum(j['state'] in ('queued','running') for j in jobs)]):
             col.metric(label, count)
@@ -319,6 +321,26 @@ elif page == 'Compound registry':
             if st.button('Open result', on_click=navigate, args=('Compound results', chosen), type='primary'):
                 st.rerun()
             st.download_button('Export registry CSV', csv_bytes([table_row(j) for j in filtered]), 'p2x4-session-registry.csv')
+            selected_record = next(j for j in filtered if j['job_id'] == chosen)
+            if not trash and selected_record['state'] in ('failed', 'cancelled', 'interrupted'):
+                st.caption('Restart creates a new attempt using the same supplied identity, SMILES and frozen protocol. The previous attempt is retained; partial checkpoints are not reused.')
+                if st.button('Restart docking protocol', key='restart-' + chosen):
+                    try:
+                        restart(worker, owner, chosen)
+                        st.rerun()
+                    except (ValueError, RuntimeError, PermissionError) as exc:
+                        st.error(str(exc))
+            if selected_record['state'] not in ('queued', 'running'):
+                st.caption('Delete moves the selected entry to Trash. You can restore it; its evidence archive is retained.')
+                if st.button('Restore selected registry' if trash else 'Delete selected registry', key='trash-' + chosen):
+                    try:
+                        set_deleted(worker, owner, chosen, deleted=not trash)
+                        if st.session_state.get('selected_job') == chosen:
+                            st.session_state.pop('selected_job', None)
+                        st.rerun()
+                    except (ValueError, RuntimeError, PermissionError) as exc:
+                        st.error(str(exc))
+
         if st.button('Compare completed compounds', on_click=navigate, args=('Compare compounds',)):
             st.rerun()
         st.caption('Private Supabase records. Existing laptop accounts and jobs have not been migrated.' if cloud_mode else 'Session records only. This view does not import private records from the original platform or automatically resolve duplicate identities.')

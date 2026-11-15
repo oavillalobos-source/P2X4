@@ -1,6 +1,7 @@
 {
   "vina_source": "https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/v1.2.7/vina_1.2.7_linux_x86_64",
   "files": {
+    "deployment/supabase/registry_trash.sql": "1457e5e5e4379ef32eb6436053b136e93866ab51bfca96e8423acb1d9e6aec71",
     "deployment/supabase/schema.sql": "af72fc9e18accd5eb50dbdc2c14b9cc907c667d3933a01e6639ca7a2fe7d6540",
     "deployment/supabase/verify_isolation.sql": "41a26d25b9a023682aae775c333370d3943f1e39e99354e5900947931f0b3d07",
     "deployment/supabase/researcher_queue.sql": "fc4a652108153d30486112f4e0f91684d0a84d1102382851ec1568b2c998d9bd",
@@ -18,7 +19,7 @@
     "docking_animation.py": "993c06d64da65266254ac6877297eadf6db092a5ae5b35c8b1a13f8ed7676886",
     "backend_workspace.py": "98641036c1f280f7eef814b98fc77156ddb9849e47e97b51253363cf3c347a6a",
     "requirements.txt": "48b65a068ee15f0f49d9b79db7dbfabac3034d5f1026f895cba5be4f6b23ff48",
-    "streamlit_app.py": "69ff0755a680a698a346038f44af6dff0c9924b10922756e14bd4ab6b3002b74",
+    "streamlit_app.py": "eac8b34494b18a8e36d3f536ee13b1e31fbdc1e11999451bb98ea01f68c50383",
     "backend-secrets.example.toml": "6a159f52efb5ccde7d7b8276014e7a155de6a2ae63bc2ab85eabec366141d721",
     "admet_infer.py": "66654dbc1472b49706d02cad399255932663c595c1edcdfeb3694dc2c8925d70",
     "README.md": "3c15459662989cc7697ae1e5bd337f4ea160497449c61db5664c08200497b397",
@@ -36,6 +37,7 @@
     "workspace.css": "949adad4d253ab1dabce5b0947b3f4409ad5f31efcbf377991a5fd553d8077d3",
     "admet_tasks.py": "37a361124770b269c1a9b483e813686efe473723f75d33a150c5c4aac0cd6e7d",
     "queue_scheduler.py": "a93e48926c63a27d4d610d285276ae034248eb8ed979227e8b0a3294cad2e278",
+    "registry_actions.py": "1b32095dc87ec43fdde2fc568490a3e8b19afa14cc844e0a87559d3a3b9ed5e9",
     ".streamlit/config.toml": "54e7a32bce8e636f00efae0569adebe2f1747f172eb0c187589bc87e3ae7fb0a",
     "bin/vina": "f31f774f723bba7bbe6e9d1c47577020eea9a8da16424284c043d22593570644"
   }
